@@ -1,0 +1,11 @@
+{
+  "steps": [
+    {
+      "kind": "model",
+      "status": "outcome_unknown",
+      "error_code": "timeout",
+      "output": {},
+      "usage": {"prompt_tokens": 7, "completion_tokens": 0, "elapsed_ms": 120000}
+    }
+  ]
+}

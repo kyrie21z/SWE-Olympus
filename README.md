@@ -4,7 +4,7 @@
 
 业务内容由输入文件决定，平台不绑定校园报名或其他固定题目。我们在这一阶段重点实现“设计规格 → 任务分解 → 编排器 → 执行可视化与交互”，通过需求文件接续上一阶段的需求确认工作。
 
-> **当前进度（2026-11-15）：** `main` 已包含 P1 工程基础和文件交接页面壳。公共契约、SQLite 存储及完整文件预检已在 P1 数据版本实现，但尚未进入 `main`。真实 Agent 调用、设计生成、动态调度和完整可视化仍待后续成员接入。
+> **当前进度（2026-11-15）：** `main` 已包含 P1 工程基础和文件交接页面壳。公共契约与 SQLite 存储已在 P1 数据版本实现，但尚未进入 `main`。`feat/p2-agents-planning` 在数据版本之上加入 P2 运行时、规划与复核能力：统一 Agent Runner、请求账本、执行记录、通用独立复核、Daedalus 任务分解、Momus 计划复核、静态 manifest 编译与追踪矩阵，配套端到端场景。真实模型调用、设计生成、动态调度和完整可视化仍待后续成员接入。
 
 ## 导航
 
@@ -50,23 +50,28 @@ flowchart LR
 
 ## 2. 当前可用能力
 
-请先区分以下两份代码，避免将分支上的能力当成主分支已经具备：
+请先区分以下代码，避免将分支上的能力当成主分支已经具备：
 
-| 能力 | 当前 `main` | P1 数据版本 |
-| --- | --- | --- |
-| Python/FastAPI/LangGraph 基础与健康检查 | 已有 | 已有 |
-| React/Ant Design 控制台、手机布局 | 已有 | 已有 |
-| JSON/Markdown/TXT 文件读取、原文预览与导出 | 已有 | 已有 |
-| JSON 语法检查 | 已有 | 已有 |
-| REQ 字段、重复编号、内容指纹和确认目标检查 | 待接入 | 已有，本地预检 |
-| 结构化需求条目、来源和确认声明展示 | 待接入 | 已有 |
-| 刷新后恢复导入记录、导出旧版 Prompt 草稿 | 待接入；当前仅页面会话 | 已有，浏览器本地保存 |
-| 公共模型、同源 JSON Schema/TypeScript | 待接入 | 已有 |
-| SQLite 事务存储、事件和幂等回执 | 待接入 | 已有，供受信服务层调用 |
-| 正式 REQ 接纳、Agent Runner、设计/任务生成 | 待实现 | 待实现 |
-| 动态编排、真实执行、恢复和完整四视图 | 待实现 | 待实现 |
+| 能力 | 当前 `main` | P1 数据版本 | P2 规划分支 |
+| --- | --- | --- | --- |
+| Python/FastAPI/LangGraph 基础与健康检查 | 已有 | 已有 | 已有 |
+| React/Ant Design 控制台、手机布局 | 已有 | 已有 | 已有 |
+| JSON/Markdown/TXT 文件读取、原文预览与导出 | 已有 | 已有 | 已有 |
+| JSON 语法检查 | 已有 | 已有 | 已有 |
+| REQ 字段、重复编号、内容指纹和确认目标检查 | 待接入 | 已有，本地预检 | 已有，本地预检 |
+| 结构化需求条目、来源和确认声明展示 | 待接入 | 已有 | 已有 |
+| 刷新后恢复导入记录、导出旧版 Prompt 草稿 | 待接入；当前仅页面会话 | 已有，浏览器本地保存 | 已有，浏览器本地保存 |
+| 公共模型、同源 JSON Schema/TypeScript | 待接入 | 已有 | 已有 |
+| SQLite 事务存储、事件和幂等回执 | 待接入 | 已有，供受信服务层调用 | 已有 |
+| 统一 Agent Runner、请求账本、执行记录 | 待实现 | 待实现 | 已有，mock 可复现 |
+| 通用独立复核（CommonReviewer）与发现关闭权限 | 待实现 | 待实现 | 已有 |
+| Daedalus 任务分解、Momus 计划复核、单次修订 | 待实现 | 待实现 | 已有，固定夹具 |
+| 静态 manifest 编译与 REQ→DS→Task 追踪矩阵 | 待实现 | 待实现 | 已有，可导出夹具 |
+| 真实模型调用与凭据管理 | 待实现 | 待实现 | 适配器已具备，需环境变量，未验证 |
+| 正式 REQ 接纳、Athena 设计生成 | 待实现 | 待实现 | 待实现 |
+| 动态编排、真实执行、恢复和完整四视图 | 待实现 | 待实现 | 待实现 |
 
-**分支状态说明：** [PR #14](https://github.com/kyrie21z/SWE-Olympus/pull/14) 已合入 `main`；[PR #15](https://github.com/kyrie21z/SWE-Olympus/pull/15) 已合入 `feat/p1-01-foundation`，其数据增量尚未合回 `main`。因此，#15 显示“已合并”不代表主分支已有全部 P1 数据能力。完整数据版本可按下文独立检出体验。
+**分支状态说明：** [PR #14](https://github.com/kyrie21z/SWE-Olympus/pull/14) 已合入 `main`；[PR #15](https://github.com/kyrie21z/SWE-Olympus/pull/15) 已合入 `feat/p1-01-foundation`，其数据增量尚未合回 `main`；P2 的两项 Issue #3、#4 已在 `feat/p2-agents-planning` 合并为分支增量，同样尚未合回 `main`。因此，#15 显示“已合并”不代表主分支已有全部 P1 数据能力，“已合并”也不代表 P2 能力已经进入主分支。完整数据版本与规划分支可按下文独立检出体验。
 
 本期不包含生产部署、多租户、任意命令执行平台、Nyx 自动复盘或长期智能记忆。已有构造案例用来验证协议和边界，不代表平台只支持该业务，也不代表真实模型流程已跑通。
 
@@ -173,9 +178,17 @@ cd SWE-Olympus-data
 
 随后按 4.2 或 4.3 安装并启动。数据版本与主分支默认使用相同端口，演示时只启动一套，或参考常见问题更换端口。上述分支的已验证代码基线为 `d40ba17`。
 
+如需连同 P2 规划能力一起体验，可改为检出规划分支：
+
+```text
+git clone --branch feat/p2-agents-planning https://github.com/kyrie21z/SWE-Olympus.git SWE-Olympus-p2
+```
+
+该分支包含 P1 数据契约与 P2 运行时、规划、复核、静态编译和追踪矩阵，所有 Agent 调用都走固定 mock 夹具，不需要模型凭据，也不会访问网络或执行真实命令。
+
 ### 4.6 配置说明
 
-[.env.example](.env.example) 保留 `OLYMPUS_MODE` 和 `OLYMPUS_DB` 作为后续接入约定。**当前启动壳没有自动加载该文件，也没有通过这些变量切换真实模型或启动数据库服务。** P1 不要求创建 `.env`；模型提供方配置由 P2 接入，凭据不得写入仓库。
+[.env.example](.env.example) 保留 `OLYMPUS_MODE` 和 `OLYMPUS_DB` 作为后续接入约定。**当前启动壳没有自动加载该文件，也没有通过这些变量切换真实模型或启动数据库服务。** P1 不要求创建 `.env`；P2 的 `RealProvider` 通过进程环境变量 `OLYMPUS_MODEL_API_KEY`、`OLYMPUS_MODEL_BASE_URL`、`OLYMPUS_MODEL_NAME` 配置，三者缺一即拒绝调用，凭据不得写入仓库。本分支的场景与检查全部使用 mock，未验证真实模型。
 
 <a id="file-input"></a>
 
@@ -289,6 +302,26 @@ tests/storage/             # 事务、并发条件与重放验证
 docs/                      # 文件交接、公共契约、P1接棒和截图
 ```
 
+P2 规划分支额外提供：
+
+```text
+backend/olympus/agents/runtime/       # Agent Runner、角色权限、provider适配、执行记录
+backend/olympus/requests/ledger.py    # 发送前预留的请求账本与幂等键
+backend/olympus/reviews/common/       # 通用独立复核与发现关闭权限
+backend/olympus/agents/daedalus/      # Daedalus任务分解与单次修订
+backend/olympus/agents/momus/planning/ # Momus计划复核与PlanningWorkflow
+backend/olympus/planning/             # 语义校验、任务卡、PlanService
+backend/olympus/planning/compiler/    # 静态manifest：分层、拓扑、关键路径启发式
+backend/olympus/traceability/planning/ # REQ→DS→Task追踪索引
+fixtures/agents/                      # mock provider夹具，含计划和计划复核
+fixtures/plans/                       # 标准计划、反例、编译manifest和追踪矩阵
+scripts/export_plans.py               # 规划夹具生成与漂移检查
+tests/agents/ tests/reviews/          # Runner、账本、复核隔离检查
+tests/planning/                       # 计划、修订、编译和追踪检查
+tests/scenarios/test_p2_planning_and_review.py # 规划到复核的端到端场景
+docs/p2-handoff.md                    # P2交付、验证与P3接棒
+```
+
 后续接线遵循这些约定：
 
 1. **公共类型同源。** 修改 Python 模型后重新生成 Schema、TypeScript 和夹具，不能分别手改多套定义。
@@ -301,13 +334,13 @@ docs/                      # 文件交接、公共契约、P1接棒和截图
 
 ## 8. 检查与测试
 
-| 命令 | 当前主分支 | P1 数据版本增量 |
-| --- | --- | --- |
-| `python scripts/project.py check` | Ruff、全部后端测试、TypeScript/Vite 构建 | 增加契约漂移和前端数据检查 |
-| `python scripts/project.py test` | 后端测试 | 增加前端数据测试 |
-| `python scripts/project.py scenario` | 无界面场景 | 后续成员继续追加自身场景 |
-| `python scripts/project.py browser` | 文件交接和手机布局 | 增加结构化REQ恢复、旧草稿导出 |
-| `python scripts/project.py generate` | 暂不提供 | 重新生成公共契约、夹具与TS类型 |
+| 命令 | 当前主分支 | P1 数据版本增量 | P2 规划分支增量 |
+| --- | --- | --- | --- |
+| `python scripts/project.py check` | Ruff、全部后端测试、TypeScript/Vite 构建 | 增加契约漂移和前端数据检查 | 再增加规划夹具漂移、运行时/规划/复核测试与端到端场景 |
+| `python scripts/project.py test` | 后端测试 | 增加前端数据测试 | 后端154项（含3项场景）与前端测试 |
+| `python scripts/project.py scenario` | 无界面场景 | 后续成员继续追加自身场景 | 3项：health/LangGraph、规划到复核两条路径 |
+| `python scripts/project.py browser` | 文件交接和手机布局 | 增加结构化REQ恢复、旧草稿导出 | 与数据版本相同，未新增浏览器用例 |
+| `python scripts/project.py generate` | 暂不提供 | 重新生成公共契约、夹具与TS类型 | 增加标准计划、反例、编译manifest与追踪矩阵 |
 
 第一次执行浏览器检查前：
 
@@ -332,8 +365,9 @@ python scripts/project.py browser
 | --- | --- |
 | 工程基础 `cdcc340` / PR #14 | 12项后端测试、构建和2项浏览器检查 |
 | 数据版本 `d40ba17` / PR #15 | 36项后端测试、18项前端数据测试、构建和4项浏览器检查 |
+| 规划分支 `feat/p2-agents-planning` / Issue #3、#4 | 154项后端测试（含3项场景）、前端测试和构建，本机通过；CI结果以该分支最新提交为准 |
 
-两份基线的 GitHub Actions 已通过，最新提交结果请查看 [Actions](https://github.com/kyrie21z/SWE-Olympus/actions)。这些记录验证的是 P1 基础能力与离线交接，不证明真实模型、完整调度或自动开发已经实现。
+两份基线的 GitHub Actions 已通过，最新提交结果请查看 [Actions](https://github.com/kyrie21z/SWE-Olympus/actions)。这些记录验证的是 P1 基础能力、离线交接以及 P2 的 mock 规划与复核链路，不证明真实模型、完整调度或自动开发已经实现。
 
 <a id="collaboration"></a>
 
@@ -392,6 +426,9 @@ P1按约定拆为两个PR；后续成员可沿用Issue中的阶段PR安排。**�
 | [文件交接说明（数据版本）](https://github.com/kyrie21z/SWE-Olympus/blob/d40ba17cfe07c9d10bb818af8c7bcb27ac4d61d2/docs/input-handoff.md) | 文件格式、预检、保存和正式接纳边界 |
 | [公共契约（数据版本）](https://github.com/kyrie21z/SWE-Olympus/blob/d40ba17cfe07c9d10bb818af8c7bcb27ac4d61d2/docs/contracts/README.md) | 对象、指纹、事务及事件语义 |
 | [P1交接记录（数据版本）](https://github.com/kyrie21z/SWE-Olympus/blob/d40ba17cfe07c9d10bb818af8c7bcb27ac4d61d2/docs/p1-handoff.md) | 接棒接口、验证及原始交付说明 |
+| [P2交接记录](docs/p2-handoff.md) | Agent Runner、请求账本、独立复核、规划与静态编译的交付说明及P3接棒 |
+| [规划夹具](fixtures/plans/) | 标准计划、反例、编译manifest与追踪矩阵 |
+| [规划到复核场景](tests/scenarios/test_p2_planning_and_review.py) | mock链路、账本、复核版本绑定与单次修订的端到端检查 |
 | [参考说明（数据版本）](https://github.com/kyrie21z/SWE-Olympus/blob/d40ba17cfe07c9d10bb818af8c7bcb27ac4d61d2/docs/reference-notes.md) | 课程结构与界面参考来源 |
 
-数据版本链接固定到对应提交；其中的“待合并”描述属于当时的交付记录，最新分支状态以本README的进度说明及GitHub为准。成员完成下一段后，应同步更新能力表、启动步骤、检查记录和文档入口。
+数据版本链接固定到对应提交；其中的“待合并”描述属于当时的交付记录。P2交接记录与规划夹具随 `feat/p2-agents-planning` 分支提供，合入 `main` 后相对链接仍然有效。最新分支状态以本README的进度说明及GitHub为准。成员完成下一段后，应同步更新能力表、启动步骤、检查记录和文档入口。

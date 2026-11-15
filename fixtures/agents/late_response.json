@@ -1,0 +1,18 @@
+{
+  "steps": [
+    {
+      "kind": "model",
+      "status": "succeeded",
+      "late_generation": 2,
+      "output": {
+        "summary": "A delayed response that belongs to generation 1.",
+        "findings": [],
+        "files": ["backend/olympus/agents/runtime/runner.py"],
+        "source_refs": ["DS-001"],
+        "issues": [],
+        "artifacts": []
+      },
+      "usage": {"prompt_tokens": 12, "completion_tokens": 6, "elapsed_ms": 9000}
+    }
+  ]
+}

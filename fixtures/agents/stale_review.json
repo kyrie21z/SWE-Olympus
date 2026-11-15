@@ -1,0 +1,26 @@
+{
+  "review_id": "REV-STALE-DS-001",
+  "target": {
+    "object_id": "DS-001",
+    "version": 1,
+    "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "author": "Daedalus",
+  "reviewer": "Momus",
+  "reviewer_role": "Momus",
+  "target_kind": "DS",
+  "verdict": "passed",
+  "findings": [],
+  "evidence": ["EV-STALE-1"],
+  "input_refs": [
+    {
+      "object_id": "REQ-001",
+      "version": 1,
+      "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "artifact_ref": null,
+  "required_checks": ["DS-COMPLETE"],
+  "passed_checks": ["DS-COMPLETE"],
+  "mode": "mock"
+}

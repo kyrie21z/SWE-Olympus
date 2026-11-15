@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.9",
+  "operation_id": "OP-demo",
+  "run_id": "RUN-campus",
+  "status": "pending",
+  "reason_code": "FIXTURE_ONLY",
+  "state_revision": 0
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.9",
+  "operation_id": "OP-demo",
+  "run_id": "RUN-campus",
+  "actor": "YOU-fixture",
+  "action": "pause",
+  "target_id": "RUN-campus",
+  "expected_version": 1,
+  "expected_state_revision": 0,
+  "parameters": {}
+}
