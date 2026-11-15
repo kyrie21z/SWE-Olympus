@@ -1,0 +1,321 @@
+{
+  "schema_version": "1.0",
+  "manifest_id": "MANIFEST-PLAN-I001-V1",
+  "compiler_version": "1.0",
+  "plan_ref": {
+    "schema_version": "1.0",
+    "object_id": "PLAN-I001",
+    "version": 1,
+    "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b"
+  },
+  "plan_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b",
+  "edge_count": 12,
+  "topological_order": [
+    "T01",
+    "T02",
+    "T03",
+    "T04",
+    "T05",
+    "T06",
+    "T07",
+    "T08"
+  ],
+  "layers": [
+    [
+      "T01"
+    ],
+    [
+      "T02",
+      "T03",
+      "T04"
+    ],
+    [
+      "T05",
+      "T06"
+    ],
+    [
+      "T07"
+    ],
+    [
+      "T08"
+    ]
+  ],
+  "predecessors": {
+    "T01": [],
+    "T02": [
+      "T01"
+    ],
+    "T03": [
+      "T01"
+    ],
+    "T04": [
+      "T01"
+    ],
+    "T05": [
+      "T03"
+    ],
+    "T06": [
+      "T02",
+      "T03"
+    ],
+    "T07": [
+      "T02",
+      "T03",
+      "T04",
+      "T05"
+    ],
+    "T08": [
+      "T06",
+      "T07"
+    ]
+  },
+  "ancestors": {
+    "T01": [],
+    "T02": [
+      "T01"
+    ],
+    "T03": [
+      "T01"
+    ],
+    "T04": [
+      "T01"
+    ],
+    "T05": [
+      "T01",
+      "T03"
+    ],
+    "T06": [
+      "T01",
+      "T02",
+      "T03"
+    ],
+    "T07": [
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05"
+    ],
+    "T08": [
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07"
+    ]
+  },
+  "successors": {
+    "T01": [
+      "T02",
+      "T03",
+      "T04"
+    ],
+    "T02": [
+      "T06",
+      "T07"
+    ],
+    "T03": [
+      "T05",
+      "T06",
+      "T07"
+    ],
+    "T04": [
+      "T07"
+    ],
+    "T05": [
+      "T07"
+    ],
+    "T06": [
+      "T08"
+    ],
+    "T07": [
+      "T08"
+    ],
+    "T08": []
+  },
+  "descendants": {
+    "T01": [
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07",
+      "T08"
+    ],
+    "T02": [
+      "T06",
+      "T07",
+      "T08"
+    ],
+    "T03": [
+      "T05",
+      "T06",
+      "T07",
+      "T08"
+    ],
+    "T04": [
+      "T07",
+      "T08"
+    ],
+    "T05": [
+      "T07",
+      "T08"
+    ],
+    "T06": [
+      "T08"
+    ],
+    "T07": [
+      "T08"
+    ],
+    "T08": []
+  },
+  "critical_path": {
+    "schema_version": "1.0",
+    "heuristic_kind": "remaining_layer_depth_and_fanout",
+    "disclaimer": "静态层级与剩余关键路径启发式，无实测工时依据，不作为工期承诺",
+    "remaining_depth": {
+      "T01": 5,
+      "T02": 3,
+      "T03": 4,
+      "T04": 3,
+      "T05": 3,
+      "T06": 2,
+      "T07": 2,
+      "T08": 1
+    },
+    "critical_chain": [
+      "T01",
+      "T03",
+      "T05",
+      "T07",
+      "T08"
+    ],
+    "priority_rank": {
+      "T01": 1,
+      "T03": 2,
+      "T02": 3,
+      "T04": 4,
+      "T05": 5,
+      "T06": 6,
+      "T07": 7,
+      "T08": 8
+    }
+  },
+  "resource_conflicts": {
+    "schema_version": "1.0",
+    "write_scope_groups": {
+      "packages/t01": [
+        "T01"
+      ],
+      "packages/t02": [
+        "T02"
+      ],
+      "packages/t03": [
+        "T03"
+      ],
+      "packages/t04": [
+        "T04"
+      ],
+      "packages/t05": [
+        "T05"
+      ],
+      "packages/t06": [
+        "T06"
+      ],
+      "packages/t07": [
+        "T07"
+      ],
+      "packages/t08": [
+        "T08"
+      ]
+    },
+    "resource_groups": {},
+    "executor_groups": {
+      "Hephaestus": [
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05"
+      ],
+      "Hermes": [
+        "T07",
+        "T08"
+      ],
+      "Momus": [
+        "T06"
+      ]
+    },
+    "concurrent_conflicts": [
+      {
+        "schema_version": "1.0",
+        "task_a": "T02",
+        "task_b": "T03",
+        "conflict_kinds": [
+          "executor"
+        ],
+        "details": [
+          "Hephaestus"
+        ]
+      },
+      {
+        "schema_version": "1.0",
+        "task_a": "T02",
+        "task_b": "T04",
+        "conflict_kinds": [
+          "executor"
+        ],
+        "details": [
+          "Hephaestus"
+        ]
+      },
+      {
+        "schema_version": "1.0",
+        "task_a": "T02",
+        "task_b": "T05",
+        "conflict_kinds": [
+          "executor"
+        ],
+        "details": [
+          "Hephaestus"
+        ]
+      },
+      {
+        "schema_version": "1.0",
+        "task_a": "T03",
+        "task_b": "T04",
+        "conflict_kinds": [
+          "executor"
+        ],
+        "details": [
+          "Hephaestus"
+        ]
+      },
+      {
+        "schema_version": "1.0",
+        "task_a": "T04",
+        "task_b": "T05",
+        "conflict_kinds": [
+          "executor"
+        ],
+        "details": [
+          "Hephaestus"
+        ]
+      }
+    ]
+  },
+  "task_hashes": {
+    "T01": "0a2f6ca6c19db5c42255255b6f8db05e8ca238418056acc3754b628db87848f0",
+    "T02": "5af0c7d27393c28442278a2c9490c1ca6356d16fa585b13ea27e8554efbd2a28",
+    "T03": "ad69242c765680732c177cbceb9255b5e9a1a93c7e0d8261b103afa1acf1d96f",
+    "T04": "9db79eaf5d890e22aacdf022f9c5e6e30e5e3e7d15299d41a5e3444f84098df1",
+    "T05": "0cabcfb4a5d83e27900133469eacaea70a75050f561468384bef98561a5656cf",
+    "T06": "32ab533f5fef9cce628f7b68d8125c4b092cf0e80c2109ab796df633b0a789c5",
+    "T07": "70b40673d6613e885200ee07c298a36a3c2896f0f9b87e424dab704c3142529c",
+    "T08": "dfd5ec0876e40722dacc7e00e40e6d641878b8ef74fc835ce0a450573508ac6c"
+  },
+  "manifest_hash": "e830740c39c5bf16d134e956d158748f3ffae524427fe2cc05bdb65b1a4783bc"
+}

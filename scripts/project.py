@@ -40,9 +40,11 @@ if __name__ == "__main__":
             run([NPM, "run", "test:browser"], ROOT / "frontend")
         elif action == "generate":
             run([PYTHON, "scripts/export_contracts.py"])
+            run([PYTHON, "scripts/export_plans.py"])
             run([NPM, "run", "contracts"], ROOT / "frontend")
         elif action == "check":
             run([PYTHON, "scripts/export_contracts.py", "--check"])
+            run([PYTHON, "scripts/export_plans.py", "--check"])
             run([PYTHON, "-m", "ruff", "check", "backend", "tests", "scripts"])
             run([PYTHON, "-m", "pytest", "-q"])
             for script in ["contracts:check", "test", "build"]:
