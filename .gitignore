@@ -12,3 +12,4 @@ __pycache__/
 test-results/
 playwright-report/
 *.log
+P3-验收输出.md
