@@ -5,17 +5,27 @@
 """
 
 from .errors import RecoveryError, RecoveryGap
+from .interruptions import (
+    POINTS,
+    Interruption,
+    ReconciliationReport,
+    RestartReconciler,
+)
 from .policy import BoundedRetryPolicy, RetryDecision
 from .rebuild import rebuild_context, verify_chain
 from .registry import RunRuntime, RuntimeRegistry
 from .repair import RepairError, RepairOutcome, plan_repair, repair_dependencies
 
 __all__ = [
+    "POINTS",
     "BoundedRetryPolicy",
+    "Interruption",
+    "ReconciliationReport",
     "RecoveryError",
     "RecoveryGap",
     "RepairError",
     "RepairOutcome",
+    "RestartReconciler",
     "RetryDecision",
     "RunRuntime",
     "RuntimeRegistry",
