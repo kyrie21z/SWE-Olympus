@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from olympus.api.errors import install_error_handlers
 from olympus.api.routes import router
 from olympus.api.service import RunQueryService
+from olympus.commands.runtime import CommandService
 from olympus.storage.sqlite import Store
 
 
@@ -16,8 +17,10 @@ def create_app(*, store: Store | None = None) -> FastAPI:
     app = FastAPI(title="SWE-Olympus", version="0.2.0")
 
     if store is not None:
+        runs = RunQueryService(store)
         app.state.store = store
-        app.state.runs = RunQueryService(store)
+        app.state.runs = runs
+        app.state.commands = CommandService(runs.registry)
 
     install_error_handlers(app)
     app.include_router(router)
