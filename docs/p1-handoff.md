@@ -9,15 +9,15 @@
 | #1 | Python/LangGraph与React/TS启动壳；health；锁文件；统一脚本；CI与PR模板；临时工作区及路径边界 | tests/unit、tests/scenarios、浏览器基础检查 |
 | #2 | 公共对象、规范指纹、同源JSON Schema/TS、合法非法样例、八任务十二边；SQLite原子状态/事件/回执；前端协议/mock/归并 | tests/contracts、tests/storage、frontend/tests/data |
 
-为了回应课堂参考图，额外完成轻量项目入口与工作台壳：侧边导航、任务选择、详情/依赖/事件标签，以及七类构造状态切换。P6仍负责正式DAG画布、Agent泳道、追踪矩阵与人工命令交互。角色目录只说明职责，没有声称模型已运行。
+界面按用户提供的 Ant Design Pro 参考重做：浅色侧栏、顶部工具栏、项目卡片/列表、开放式需求表单、原始需求/规格/编排/活动标签。支持任意Prompt、草稿编辑、搜索、导出和本地保存；移除页面默认校园案例及样例状态切换。七类运行场景仍保留在数据层测试。P6仍负责正式DAG画布、Agent泳道、追踪矩阵与人工命令交互。角色目录只说明职责，没有声称模型已运行。
 
 ## 本地验证
 
-- `python scripts/project.py check`：契约漂移检查、Ruff、后端35项测试、前端6项数据测试、TypeScript与Vite构建。
-- 浏览器使用本机Edge（Playwright Chromium通道），2项检查：工作台场景/风险状态切换、390px手机布局。
-- 桌面1440px及手机截图已查看；没有横向溢出，切换风险场景不增加验收计数。
+- `python scripts/project.py check`：契约漂移检查、Ruff、后端35项测试、前端13项数据测试、TypeScript与Vite构建。
+- 浏览器使用本机Edge（Playwright Chromium通道），3项检查：不同业务Prompt创建/编辑/搜索/导出、刷新恢复及未生成状态、390px手机导航与布局。
+- 桌面1440px及手机截图已查看；没有页面横向溢出，录入草稿不会生成虚构规格或验收状态。
 - 路径检查包含Windows junction越界；测试创建的临时工作区会自动清理。
-- 测试只覆盖P1基础服务与mock数据，不证明真实Agent、完整业务调度或自动生成代码已跑通。
+- 测试只覆盖P1基础服务、离线数据及用户草稿交互，不证明真实Agent、完整业务调度或自动生成代码已跑通。
 
 本地Edge运行方式（未下载Playwright自带Chromium时）：
 
@@ -46,3 +46,9 @@ CI使用Playwright安装的Chromium。Python依赖有两条上游弃用提示（
 - 文档content中的业务结构是课程原型粒度；复杂接口参数/实体定义可在P2/P4扩展并提升schema版本。
 
 两个PR分别关联对应Issue，由P2独立评审；先合并工程基础，再将数据PR的base切到main并复核后合并。代码缺陷由对应作者修复，不将后端验收留给P6。
+
+## P2/P6接入开放式输入
+
+`frontend/src/projects/model.ts`的ProjectDraft保留原始prompt、constraints、revision与时间。`projects/storage.ts`负责浏览器本地草稿保存，严格校验版本与字段；它不是SQLite正式项目仓库。调用生成服务时必须显式将该用户输入转成服务端需求请求，返回带来源和版本的真实产物，再接入工作台。不要用测试夹具填充生成结果。
+
+Issue #1的storage适配器只提供页面会话；Issue #2以相同入口接入localStorage。独立PR仍按#14 → #15顺序评审。
