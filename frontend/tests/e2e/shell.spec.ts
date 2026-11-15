@@ -17,9 +17,12 @@ test("arbitrary prompts create separate editable drafts without invented output"
   await expect(page.getByText("请先描述你想做的软件")).toBeVisible();
   const prompt =
     "为自由职业者设计一个项目报价工具。\n支持报价版本比较、导出 PDF，不包含支付。";
-  await page.getByLabel("项目名称").fill("自由职业者报价工具");
-  await page.getByLabel("需求描述").fill(prompt);
-  await page.getByLabel("约束与补充").fill("六人团队，八周，先完成 Web 版。");
+  await page.locator("#new").getByLabel("项目名称").fill("自由职业者报价工具");
+  await page.locator("#new").getByLabel("需求描述").fill(prompt);
+  await page
+    .locator("#new")
+    .getByLabel("约束与补充")
+    .fill("六人团队，八周，先完成 Web 版。");
   await page.getByRole("button", { name: "创建需求草稿" }).click();
   await expect(page.locator(".prompt-content")).toHaveText(prompt);
   await expect(page.getByText("尚未执行", { exact: true })).toBeVisible();
@@ -48,8 +51,9 @@ test("arbitrary prompts create separate editable drafts without invented output"
     /^olympus-draft-.+\.json$/,
   );
   await page.getByRole("button", { name: "新建项目", exact: true }).click();
-  await page.getByLabel("项目名称").fill("阅读笔记管理");
+  await page.locator("#new").getByLabel("项目名称").fill("阅读笔记管理");
   await page
+    .locator("#new")
     .getByLabel("需求描述")
     .fill("管理阅读笔记，支持标签、搜索和 Markdown 导出。");
   await page.getByRole("button", { name: "创建需求草稿" }).click();
@@ -79,6 +83,7 @@ test("mobile navigation and workspace fit narrow screens", async ({
     ),
   ).toBe(true);
   await page
+    .locator("#new")
     .getByLabel("需求描述")
     .fill("我要做一个团队知识库，支持检索与文档修订历史。");
   await page.getByRole("button", { name: "创建需求草稿" }).click();
