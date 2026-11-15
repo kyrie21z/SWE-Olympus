@@ -156,7 +156,7 @@ python scripts/project.py backend
 python scripts/project.py frontend
 ```
 
-- 前端：[http://127.0.0.1:5173](http://127.0.0.1:5173)
+- 前端：[http://127.0.0.1:5175](http://127.0.0.1:5175)
 - 健康检查：[http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 - FastAPI 接口文档：[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
