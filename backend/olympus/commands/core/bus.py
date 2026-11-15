@@ -36,7 +36,7 @@ from olympus.commands.registry.actions import (
     DEFERRED_ACTIONS,
     is_deferred,
 )
-from olympus.contracts.models import Command, Receipt, Run, TaskRuntime
+from olympus.contracts.models import Command, Receipt, Ref, Run, TaskRuntime
 from olympus.orchestrator.scheduler.scheduler import Scheduler
 from olympus.orchestrator.state_machine.run_context import RunContext
 
@@ -56,16 +56,26 @@ class _Spec:
 @dataclass
 class CommandBus:
     ctx: RunContext
-    scheduler: Scheduler
+    scheduler: Scheduler | None = None
     store: Any = None            # 可选：olympus.storage.sqlite.Store，给了就委托持久化
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
     _receipts: dict[str, tuple[str, Receipt]] = field(default_factory=dict, repr=False)
     notes: dict[str, str] = field(default_factory=dict, repr=False)
     _specs: dict[str, _Spec] = field(default_factory=dict, repr=False)
     _deferred: dict[str, str] = field(default_factory=dict, repr=False)
+    _target_refs: dict[str, Ref] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         self._register_builtin()
+
+    def bind_target(self, ref: Ref) -> None:
+        """Bind a trusted stage target's own version (DS is not the PLAN version)."""
+        with self._lock:
+            previous = self._target_refs.get(ref.object_id)
+            if previous and (ref.version < previous.version or
+                             (ref.version == previous.version and ref != previous)):
+                raise ValueError("stage target rollback or same-version conflict")
+            self._target_refs[ref.object_id] = ref.model_copy(deep=True)
 
     # ------------------------------------------------------------ 注册
     def register(self, action: str, fn: Handler, actors: set[str] | None = None,
@@ -128,6 +138,8 @@ class CommandBus:
 
     def _task_level_reasons(self, action: str) -> list[str]:
         """任务级动作的前置条件：没有可操作任务时说明原因。"""
+        if self.scheduler is None and action != "approve_design":
+            return ["a reviewed plan and scheduler have not been attached yet"]
         states = {
             "retry": ("failed", "blocked"),
             "reassign": ("waiting", "ready", "blocked"),
@@ -163,6 +175,9 @@ class CommandBus:
                     f"期望 rev{cmd.expected_state_revision}，"
                     f"当前 rev{self.ctx.run.state_revision}")
 
+            if self.scheduler is None and cmd.action != "approve_design":
+                return self._seal(cmd, digest, "rejected", "not_ready", "no reviewed plan/scheduler yet")
+
             version_note = self._version_mismatch(cmd)
             if version_note:
                 return self._seal(cmd, digest, "rejected", "stale_version", version_note)
@@ -190,6 +205,13 @@ class CommandBus:
             return receipt
 
     def _version_mismatch(self, cmd: Command) -> str | None:
+        target = self._target_refs.get(cmd.target_id)
+        if target is not None:
+            if cmd.expected_version != target.version:
+                return "stage target version mismatch"
+            return None
+        if self.scheduler is None:
+            return "unregistered stage approval target"
         task = next((t for t in self.scheduler.plan.tasks if t.task_id == cmd.target_id), None)
         if task is not None:
             if cmd.expected_version != task.version:

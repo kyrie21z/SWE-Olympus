@@ -18,7 +18,7 @@ ALLOWED: dict[str, frozenset[str]] = {
     # ready → waiting 只用于改版回退：前驱因新版本失效时，任务退回等待
     "ready": frozenset({"running", "blocked", "cancelled", "waiting"}),
     "running": frozenset({"verifying", "failed", "blocked", "cancelled"}),
-    "verifying": frozenset({"accepted", "failed"}),
+    "verifying": frozenset({"accepted", "failed", "cancelled"}),
     "accepted": frozenset(),
     "blocked": frozenset({"ready", "failed", "cancelled", "waiting"}),
     "failed": frozenset({"ready", "cancelled"}),

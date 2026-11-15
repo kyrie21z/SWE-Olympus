@@ -251,6 +251,9 @@ class Scheduler:
     # ------------------------------------------------------------ 派发 + 执行替身
     def dispatch(self, task_id: str, executor: FakeExecutor) -> FakeExecutor | None:
         """取许可 → 交给执行器 → 记下 attempt。拿不到许可返回 None。"""
+        preflight = getattr(executor, "validate_dispatch", None)
+        if preflight is not None:
+            preflight(task_id)
         permit = self.acquire(task_id)
         if permit is None:
             return None
@@ -263,6 +266,15 @@ class Scheduler:
             task_id=task_id, attempt_id=attempt.attempt_id,
         )
         return executor
+
+    def permit_for(self, task_id: str) -> Permit | None:
+        """Read-only P4 integration point; acquisition remains scheduler-owned."""
+        with self._lock:
+            return self._permits.get(task_id)
+
+    def attempt_for(self, task_id: str) -> str | None:
+        with self._lock:
+            return self._attempts.get(task_id)
 
     def accept_submission(self, task_id: str, generation: int,
                           artifacts: list[str],
