@@ -11,6 +11,7 @@ from typing import Protocol
 
 from pydantic import JsonValue
 
+from olympus.agents.runtime import AgentRunner, RolePermissions, RoleRunInput
 from olympus.contracts.models import (
     Design,
     Plan,
@@ -146,7 +147,7 @@ class DaedalusPlanner:
     role_id = DAEDALUS
     task_kind = PLAN_TASK_KIND
 
-    def __init__(self, runner: PlanRunner | None = None):
+    def __init__(self, runner: PlanRunner | AgentRunner | None = None):
         self._runner = runner
 
     def build_prompt(self, req: Requirement, ds: Design) -> str:
@@ -228,10 +229,47 @@ class DaedalusPlanner:
             tasks=tasks,
         )
 
+    @staticmethod
+    def _is_complete_plan_payload(output: dict[str, JsonValue]) -> bool:
+        """True only for a full Plan payload, not a partial plan draft from a model."""
+        if "object_id" not in output or "tasks" not in output:
+            return False
+        tasks = output["tasks"]
+        if not isinstance(tasks, list) or not tasks:
+            return False
+        return all(
+            isinstance(task, dict) and "task_id" in task and "goal" in task for task in tasks
+        )
+
+    def _plan_via_runner(self, req: Requirement, ds: Design) -> Plan:
+        """Run the planning call through ``AgentRunner`` so the call is ledgered."""
+        manifest = self.build_input_manifest(req, ds)
+        run_input = RoleRunInput(
+            role_id=self.role_id,
+            task_kind=self.task_kind,
+            logical_task_id=f"LOG-PLAN-{req.object_id}",
+            task_id=f"PLAN-{req.object_id}",
+            input_manifest=manifest,
+            input_refs=[req.ref(), ds.ref()],
+            permissions=RolePermissions(
+                role_id=self.role_id,
+                allowed_task_kinds=[self.task_kind],
+                allowed_input_keys=list(manifest.keys()),
+            ),
+            fixture_key="Daedalus:plan",
+        )
+        role_result = self._runner.run(run_input)
+        output = role_result.structured_output
+        if self._is_complete_plan_payload(output):
+            return Plan.model_validate(output)
+        return self.build_plan(req, ds)
+
     def plan(self, req: Requirement, ds: Design) -> Plan:
         """Generate a plan through the optional runner, else the deterministic adapter."""
         if self._runner is None:
             return self.build_plan(req, ds)
+        if isinstance(self._runner, AgentRunner):
+            return self._plan_via_runner(req, ds)
         result = self._runner.run(self.build_input_manifest(req, ds))
         return result if isinstance(result, Plan) else Plan.model_validate(result)
 

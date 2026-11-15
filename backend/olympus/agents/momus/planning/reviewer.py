@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Iterable, Literal
 
+from olympus.agents.runtime import AgentRunner, RolePermissions, RoleRunInput
 from olympus.contracts.models import (
     Contract,
     Design,
@@ -27,9 +28,12 @@ from olympus.planning.validator import (
     scan_out_of_scope,
     validate_plan_semantics,
 )
+from olympus.reviews.common import CommonReviewer, ReviewFinding, ReviewSubmission
 
 DAEDALUS = "Daedalus"
 MOMUS = "Momus"
+REVIEW_TASK_KIND = "plan_review"
+PLAN_REVIEW_CHECKS = ["program:validate_plan_semantics", "momus:semantic-review"]
 
 
 class SemanticFinding(Contract):
@@ -62,10 +66,18 @@ class PlanningOutcome(Contract):
 class MomusPlanReviewer:
     reviewer_id = MOMUS
 
-    def __init__(self, authorized_closers: Iterable[Id] = (), mode: Mode = "mock"):
+    def __init__(
+        self,
+        authorized_closers: Iterable[Id] = (),
+        mode: Mode = "mock",
+        common_reviewer: CommonReviewer | None = None,
+        runner: AgentRunner | None = None,
+    ):
         # Daedalus can never be an authorized closer of its own review blockers.
         self.authorized_closers = frozenset(authorized_closers) - {DAEDALUS}
         self.mode = mode
+        self.common_reviewer = common_reviewer if common_reviewer is not None else CommonReviewer()
+        self.runner = runner
 
     def _granularity_findings(self, plan: Plan) -> list[SemanticFinding]:
         implementation = [task for task in plan.tasks if task.type == "implement"]
@@ -113,6 +125,30 @@ class MomusPlanReviewer:
                 )
         return findings
 
+    def _run_agent(self, plan: Plan, req: Requirement, ds: Design) -> None:
+        """Send the review call through ``AgentRunner`` so it is ledgered and recorded."""
+        self.runner.run(
+            RoleRunInput(
+                role_id=MOMUS,
+                task_kind=REVIEW_TASK_KIND,
+                logical_task_id=f"LOG-REVIEW-{plan.object_id}-V{plan.version}",
+                task_id=plan.object_id,
+                input_manifest={
+                    "plan_id": plan.object_id,
+                    "plan_version": plan.version,
+                    "req_id": req.object_id,
+                    "ds_id": ds.object_id,
+                },
+                input_refs=[req.ref(), ds.ref(), plan.ref()],
+                permissions=RolePermissions(
+                    role_id=MOMUS,
+                    allowed_task_kinds=[REVIEW_TASK_KIND],
+                    allowed_input_keys=["plan_id", "plan_version", "req_id", "ds_id"],
+                ),
+                fixture_key="Momus:plan_review",
+            )
+        )
+
     def review(self, plan: Plan, req: Requirement, ds: Design) -> PlanReview:
         report = validate_plan_semantics(plan, req, ds)
         findings = [
@@ -145,22 +181,50 @@ class MomusPlanReviewer:
             verdict = "needs_revision"
         else:
             verdict = "passed"
-        review = Review(
+
+        if self.runner is not None and isinstance(self.runner, AgentRunner):
+            self._run_agent(plan, req, ds)
+
+        common_findings = [
+            ReviewFinding(
+                finding_id=f"F-{plan.object_id}-V{plan.version}-{idx}",
+                target=plan.ref(),
+                category=finding.code,
+                severity=finding.severity,
+                message=f"[{finding.severity}] {finding.code}: {finding.message}",
+                raised_by=self.reviewer_id,
+            )
+            for idx, finding in enumerate(findings)
+        ]
+        submission = ReviewSubmission(
             review_id=f"REV-{plan.object_id[:100]}-V{plan.version}"[:160],
             target=plan.ref(),
             author=DAEDALUS,
             reviewer=self.reviewer_id,
+            reviewer_role="Momus",
+            target_kind="PLAN",
             verdict=verdict,
-            findings=[f"[{finding.severity}] {finding.code}: {finding.message}" for finding in findings],
+            findings=common_findings,
             evidence=[
                 f"validation:{report.plan_ref.object_id}:v{report.plan_ref.version}",
                 "program:validate_plan_semantics",
                 "momus:semantic-review",
             ],
+            input_refs=[req.ref(), ds.ref()],
+            required_checks=list(PLAN_REVIEW_CHECKS),
+            passed_checks=(
+                list(PLAN_REVIEW_CHECKS) if verdict == "passed" else ["program:validate_plan_semantics"]
+            ),
             mode=self.mode,
         )
+        record = self.common_reviewer.validate_and_record(
+            submission,
+            current_target=plan.ref(),
+            expected_author=DAEDALUS,
+            current_inputs=[req.ref(), ds.ref()],
+        )
         return PlanReview(
-            review=review,
+            review=record.review,
             validation=report,
             findings=findings,
             revision_recommended=verdict != "passed",
@@ -183,7 +247,7 @@ class MomusPlanReviewer:
             raise PermissionError("作者不得关闭自己的审查阻塞项")
         if closer != self.reviewer_id and closer not in self.authorized_closers:
             raise PermissionError(f"{closer} 未被授权关闭 Momus 审查阻塞项")
-        return Review(
+        closed = Review(
             review_id=f"{review.review_id}-CLOSE-{closer}"[:160],
             target=plan.ref(),
             author=review.author,
@@ -193,6 +257,21 @@ class MomusPlanReviewer:
             evidence=evidence or list(review.evidence),
             mode=review.mode,
         )
+        try:
+            record = self.common_reviewer.get(review.review_id)
+        except KeyError:
+            record = None
+        if record is not None:
+            for finding in record.submission.findings:
+                if finding.status == "open":
+                    self.common_reviewer.close_finding(
+                        review.review_id,
+                        finding.finding_id,
+                        actor=closer,
+                        reason="closed via close_blockers",
+                        authorized_non_authors=set(self.authorized_closers),
+                    )
+        return closed
 
 
 class PlanningWorkflow:
