@@ -1,0 +1,21 @@
+{
+  "schema_version": "0.9",
+  "artifact_id": "ART-T01",
+  "run_id": "RUN-campus",
+  "task_id": "T01",
+  "attempt_id": "ATT-1",
+  "location": "packages/t01/types.json",
+  "content_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "inputs": [
+    {
+      "schema_version": "1.0",
+      "object_id": "DS-I001",
+      "version": 1,
+      "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+    }
+  ],
+  "implementation_version": "impl-v1",
+  "test_version": "tests-v1",
+  "fixture_version": "fixture-v1",
+  "mode": "mock"
+}

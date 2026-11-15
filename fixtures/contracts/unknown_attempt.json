@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "attempt_id": "ATT-1",
+  "logical_task_id": "LOG-T01",
+  "run_id": "RUN-campus",
+  "task_id": "T01",
+  "generation": 1,
+  "input_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b",
+  "provider_request_id": "external-unknown",
+  "idempotency_key": "REQ-1",
+  "mode": "mock",
+  "status": "outcome_unknown",
+  "auto_retry_count": 0,
+  "human_retry_count": 0
+}
