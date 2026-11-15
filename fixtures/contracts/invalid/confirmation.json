@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.9",
+  "confirmation_id": "H-01",
+  "actor": "YOU-fixture",
+  "origin": "synthetic_fixture",
+  "target": {
+    "schema_version": "1.0",
+    "object_id": "I001",
+    "version": 2,
+    "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+  },
+  "dependencies": [],
+  "confirmed_at": "2026-11-15T08:00:00Z"
+}

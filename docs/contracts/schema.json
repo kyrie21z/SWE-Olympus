@@ -1,0 +1,1621 @@
+{
+  "$defs": {
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "artifact_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "attempt_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "location": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Location",
+          "type": "string"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "implementation_version": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Implementation Version",
+          "type": "string"
+        },
+        "test_version": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Test Version",
+          "type": "string"
+        },
+        "fixture_version": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Fixture Version",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real_tool",
+            "real_model"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "artifact_id",
+        "run_id",
+        "task_id",
+        "attempt_id",
+        "location",
+        "content_hash",
+        "inputs",
+        "implementation_version",
+        "test_version",
+        "fixture_version",
+        "mode"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "Attempt": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "attempt_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "logical_task_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Logical Task Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Hash",
+          "type": "string"
+        },
+        "provider_request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider Request Id"
+        },
+        "idempotency_key": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real_tool",
+            "real_model"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "prepared",
+            "sent",
+            "succeeded",
+            "failed",
+            "outcome_unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "auto_retry_count": {
+          "default": 0,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Auto Retry Count",
+          "type": "integer"
+        },
+        "human_retry_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Human Retry Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "logical_task_id",
+        "run_id",
+        "task_id",
+        "generation",
+        "input_hash",
+        "provider_request_id",
+        "idempotency_key",
+        "mode",
+        "status",
+        "auto_retry_count",
+        "human_retry_count"
+      ],
+      "title": "Attempt",
+      "type": "object"
+    },
+    "AttemptPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "max_auto_retries": {
+          "default": 2,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Max Auto Retries",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 120,
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "max_auto_retries",
+        "timeout_seconds"
+      ],
+      "title": "AttemptPolicy",
+      "type": "object"
+    },
+    "Command": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "operation_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "actor": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Actor",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "approve_design",
+            "approve_plan",
+            "start",
+            "pause",
+            "resume",
+            "retry",
+            "reassign",
+            "accept_risk",
+            "request_change",
+            "confirm_delivery"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "target_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "expected_state_revision": {
+          "minimum": 0,
+          "title": "Expected State Revision",
+          "type": "integer"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "run_id",
+        "actor",
+        "action",
+        "target_id",
+        "expected_version",
+        "expected_state_revision",
+        "parameters"
+      ],
+      "title": "Command",
+      "type": "object"
+    },
+    "Confirmation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "confirmation_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Confirmation Id",
+          "type": "string"
+        },
+        "actor": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Actor",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "human",
+            "synthetic_fixture"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/Ref"
+        },
+        "dependencies": {
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "confirmed_at": {
+          "format": "date-time",
+          "title": "Confirmed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "confirmation_id",
+        "actor",
+        "origin",
+        "target",
+        "dependencies",
+        "confirmed_at"
+      ],
+      "title": "Confirmation",
+      "type": "object"
+    },
+    "Design": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "object_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Object Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "content": {
+          "$ref": "#/$defs/DesignContent"
+        },
+        "kind": {
+          "const": "DS",
+          "default": "DS",
+          "title": "Kind",
+          "type": "string"
+        },
+        "requirement": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "required": [
+        "schema_version",
+        "object_id",
+        "version",
+        "content_hash",
+        "provenance",
+        "content",
+        "kind",
+        "requirement"
+      ],
+      "title": "Design",
+      "type": "object"
+    },
+    "DesignContent": {
+      "additionalProperties": false,
+      "properties": {
+        "modules": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Modules",
+          "type": "array"
+        },
+        "data": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Data",
+          "type": "array"
+        },
+        "interfaces": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "states": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "States",
+          "type": "array"
+        },
+        "concurrency": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Concurrency",
+          "type": "string"
+        },
+        "exceptions": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Exceptions",
+          "type": "array"
+        },
+        "interaction": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Interaction",
+          "type": "string"
+        },
+        "decisions": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Decisions",
+          "type": "array"
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/DesignElement"
+          },
+          "minItems": 1,
+          "title": "Elements",
+          "type": "array"
+        }
+      },
+      "required": [
+        "modules",
+        "data",
+        "interfaces",
+        "states",
+        "concurrency",
+        "exceptions",
+        "interaction",
+        "decisions",
+        "elements"
+      ],
+      "title": "DesignContent",
+      "type": "object"
+    },
+    "DesignElement": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "acceptance_method": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Acceptance Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sources",
+        "description",
+        "acceptance_method"
+      ],
+      "title": "DesignElement",
+      "type": "object"
+    },
+    "Event": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "event_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "event_seq": {
+          "minimum": 1,
+          "title": "Event Seq",
+          "type": "integer"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Attempt Id"
+        },
+        "old_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "waiting",
+                "ready",
+                "running",
+                "verifying",
+                "accepted",
+                "failed",
+                "blocked",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Old State"
+        },
+        "new_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "waiting",
+                "ready",
+                "running",
+                "verifying",
+                "accepted",
+                "failed",
+                "blocked",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "New State"
+        },
+        "reason": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "actor_type": {
+          "enum": [
+            "program",
+            "agent",
+            "human"
+          ],
+          "title": "Actor Type",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "state_revision": {
+          "minimum": 1,
+          "title": "State Revision",
+          "type": "integer"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/Run"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "run_id",
+        "event_seq",
+        "task_id",
+        "attempt_id",
+        "old_state",
+        "new_state",
+        "reason",
+        "actor_type",
+        "occurred_at",
+        "state_revision",
+        "snapshot"
+      ],
+      "title": "Event",
+      "type": "object"
+    },
+    "ExecutionRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "record_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Record Id",
+          "type": "string"
+        },
+        "attempt_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "type": "object"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "artifacts": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "diff": {
+          "title": "Diff",
+          "type": "string"
+        },
+        "check_outputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Check Outputs",
+          "type": "array"
+        },
+        "elapsed_ms": {
+          "minimum": 0,
+          "title": "Elapsed Ms",
+          "type": "integer"
+        },
+        "call_count": {
+          "minimum": 0,
+          "title": "Call Count",
+          "type": "integer"
+        },
+        "retry_history": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Retry History",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real_tool",
+            "real_model"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_id",
+        "attempt_id",
+        "task_id",
+        "inputs",
+        "tools",
+        "artifacts",
+        "diff",
+        "check_outputs",
+        "elapsed_ms",
+        "call_count",
+        "retry_history",
+        "mode"
+      ],
+      "title": "ExecutionRecord",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Plan": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "object_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Object Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "content": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Content",
+          "type": "object"
+        },
+        "kind": {
+          "const": "PLAN",
+          "default": "PLAN",
+          "title": "Kind",
+          "type": "string"
+        },
+        "requirement": {
+          "$ref": "#/$defs/Ref"
+        },
+        "design": {
+          "$ref": "#/$defs/Ref"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/Task"
+          },
+          "minItems": 1,
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "object_id",
+        "version",
+        "content_hash",
+        "provenance",
+        "content",
+        "kind",
+        "requirement",
+        "design",
+        "tasks"
+      ],
+      "title": "Plan",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "material",
+            "human",
+            "agent_hypothesis",
+            "synthetic_fixture"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "locator": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "source_id",
+        "locator"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "operation_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "rejected",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason_code": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "state_revision": {
+          "minimum": 0,
+          "title": "State Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "run_id",
+        "status",
+        "reason_code",
+        "state_revision"
+      ],
+      "title": "Receipt",
+      "type": "object"
+    },
+    "Ref": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "object_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Object Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "object_id",
+        "version",
+        "content_hash"
+      ],
+      "title": "Ref",
+      "type": "object"
+    },
+    "Requirement": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "object_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Object Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "content": {
+          "$ref": "#/$defs/RequirementContent"
+        },
+        "kind": {
+          "const": "REQ",
+          "default": "REQ",
+          "title": "Kind",
+          "type": "string"
+        },
+        "confirmation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Confirmation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "schema_version",
+        "object_id",
+        "version",
+        "content_hash",
+        "provenance",
+        "content",
+        "kind",
+        "confirmation"
+      ],
+      "title": "Requirement",
+      "type": "object"
+    },
+    "RequirementContent": {
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {
+          "items": {
+            "$ref": "#/$defs/RequirementItem"
+          },
+          "minItems": 1,
+          "title": "Requirements",
+          "type": "array"
+        },
+        "out_of_scope": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Out Of Scope",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirements",
+        "out_of_scope"
+      ],
+      "title": "RequirementContent",
+      "type": "object"
+    },
+    "RequirementItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "acceptance": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Acceptance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "acceptance"
+      ],
+      "title": "RequirementItem",
+      "type": "object"
+    },
+    "Review": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "review_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/Ref"
+        },
+        "author": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Author",
+          "type": "string"
+        },
+        "reviewer": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Reviewer",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "passed",
+            "blocked",
+            "needs_revision"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real_tool",
+            "real_model"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "review_id",
+        "target",
+        "author",
+        "reviewer",
+        "verdict",
+        "findings",
+        "evidence",
+        "mode"
+      ],
+      "title": "Review",
+      "type": "object"
+    },
+    "Run": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real_tool",
+            "real_model"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "approved_package": {
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "title": "Approved Package",
+          "type": "array"
+        },
+        "state_revision": {
+          "default": 0,
+          "minimum": 0,
+          "title": "State Revision",
+          "type": "integer"
+        },
+        "event_seq": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Event Seq",
+          "type": "integer"
+        },
+        "status": {
+          "default": "draft",
+          "enum": [
+            "draft",
+            "active",
+            "paused",
+            "awaiting_confirmation",
+            "completed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "call_budget": {
+          "default": 40,
+          "minimum": 1,
+          "title": "Call Budget",
+          "type": "integer"
+        },
+        "calls_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Calls Used",
+          "type": "integer"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/TaskRuntime"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "mode",
+        "approved_package",
+        "state_revision",
+        "event_seq",
+        "status",
+        "call_budget",
+        "calls_used",
+        "tasks"
+      ],
+      "title": "Run",
+      "type": "object"
+    },
+    "Task": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "interface",
+            "implement",
+            "test",
+            "integrate",
+            "doc"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "goal": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "inputs": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Outputs",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "executor": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Executor",
+          "type": "string"
+        },
+        "reviewer": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Reviewer",
+          "type": "string"
+        },
+        "write_scope": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Write Scope",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Checks",
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Resources",
+          "type": "array"
+        },
+        "priority": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Priority",
+          "type": "integer"
+        },
+        "policy": {
+          "$ref": "#/$defs/AttemptPolicy"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "task_id",
+        "version",
+        "content_hash",
+        "type",
+        "goal",
+        "sources",
+        "inputs",
+        "outputs",
+        "depends_on",
+        "executor",
+        "reviewer",
+        "write_scope",
+        "checks",
+        "resources",
+        "priority",
+        "policy",
+        "required"
+      ],
+      "title": "Task",
+      "type": "object"
+    },
+    "TaskRuntime": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "state": {
+          "default": "waiting",
+          "enum": [
+            "waiting",
+            "ready",
+            "running",
+            "verifying",
+            "accepted",
+            "failed",
+            "blocked",
+            "cancelled"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "verification_status": {
+          "default": "unverified",
+          "enum": [
+            "unverified",
+            "passed",
+            "failed",
+            "stale"
+          ],
+          "title": "Verification Status",
+          "type": "string"
+        },
+        "disposition": {
+          "default": "none",
+          "enum": [
+            "none",
+            "risk_accepted"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "disposition_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disposition Reason"
+        },
+        "generation": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "task_id",
+        "state",
+        "verification_status",
+        "disposition",
+        "disposition_reason",
+        "generation"
+      ],
+      "title": "TaskRuntime",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "requirement": {
+      "$ref": "#/$defs/Requirement"
+    },
+    "design": {
+      "$ref": "#/$defs/Design"
+    },
+    "plan": {
+      "$ref": "#/$defs/Plan"
+    },
+    "run": {
+      "$ref": "#/$defs/Run"
+    },
+    "attempt": {
+      "$ref": "#/$defs/Attempt"
+    },
+    "artifact": {
+      "$ref": "#/$defs/Artifact"
+    },
+    "review": {
+      "$ref": "#/$defs/Review"
+    },
+    "event": {
+      "$ref": "#/$defs/Event"
+    },
+    "command": {
+      "$ref": "#/$defs/Command"
+    },
+    "receipt": {
+      "$ref": "#/$defs/Receipt"
+    },
+    "execution_record": {
+      "$ref": "#/$defs/ExecutionRecord"
+    }
+  },
+  "required": [
+    "schema_version",
+    "requirement",
+    "design",
+    "plan",
+    "run",
+    "attempt",
+    "artifact",
+    "review",
+    "event",
+    "command",
+    "receipt",
+    "execution_record"
+  ],
+  "title": "ContractBundle",
+  "type": "object"
+}

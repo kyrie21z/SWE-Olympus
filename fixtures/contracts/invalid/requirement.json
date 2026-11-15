@@ -1,0 +1,63 @@
+{
+  "schema_version": "0.9",
+  "object_id": "I001",
+  "version": 2,
+  "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587",
+  "provenance": [
+    {
+      "schema_version": "1.0",
+      "kind": "synthetic_fixture",
+      "source_id": "H-01",
+      "locator": "人工构造案例，非真实用户决定"
+    }
+  ],
+  "content": {
+    "requirements": [
+      {
+        "id": "FR-001",
+        "text": "最后名额并发不超容量",
+        "acceptance": "最后名额并发不超容量"
+      },
+      {
+        "id": "FR-002",
+        "text": "同账号不重复占位",
+        "acceptance": "同账号不重复占位"
+      },
+      {
+        "id": "FR-003",
+        "text": "自动递补最早有效候补",
+        "acceptance": "自动递补最早有效候补"
+      },
+      {
+        "id": "FR-004",
+        "text": "取消后退出有效队列",
+        "acceptance": "取消后退出有效队列"
+      },
+      {
+        "id": "FR-005",
+        "text": "主动查询状态",
+        "acceptance": "主动查询状态"
+      }
+    ],
+    "out_of_scope": [
+      "真实身份",
+      "收费",
+      "短信/推送"
+    ]
+  },
+  "kind": "REQ",
+  "confirmation": {
+    "schema_version": "1.0",
+    "confirmation_id": "H-01",
+    "actor": "YOU-fixture",
+    "origin": "synthetic_fixture",
+    "target": {
+      "schema_version": "1.0",
+      "object_id": "I001",
+      "version": 2,
+      "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+    },
+    "dependencies": [],
+    "confirmed_at": "2026-11-15T08:00:00Z"
+  }
+}
