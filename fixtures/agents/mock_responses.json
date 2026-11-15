@@ -1,0 +1,114 @@
+{
+  "Daedalus": {
+    "steps": [
+      {
+        "kind": "tool",
+        "name": "read_file",
+        "arguments": {"path": "backend/olympus/agents/runtime/models.py"},
+        "result": {
+          "content": "class RolePermissions(Contract): ...",
+          "reasoning": "private tool scratchpad that must never be persisted"
+        },
+        "usage": {"prompt_tokens": 11, "completion_tokens": 0, "elapsed_ms": 4}
+      },
+      {
+        "kind": "model",
+        "output": {
+          "summary": "Implemented the unified runner runtime contracts.",
+          "findings": [],
+          "files": ["backend/olympus/agents/runtime/models.py"],
+          "source_refs": ["DS-001"],
+          "issues": [],
+          "check_outputs": ["ruff: clean"],
+          "diff": "--- a/backend/olympus/agents/runtime/models.py\n+++ b/backend/olympus/agents/runtime/models.py",
+          "artifacts": [],
+          "reasoning": "private chain of thought",
+          "thinking": "must be stripped before persisting"
+        },
+        "usage": {"prompt_tokens": 40, "completion_tokens": 20, "elapsed_ms": 30}
+      }
+    ]
+  },
+  "Daedalus:IMPLEMENT": {
+    "steps": [
+      {
+        "kind": "model",
+        "output": {
+          "summary": "Implemented the task artifact.",
+          "findings": [],
+          "files": ["backend/olympus/agents/runtime/runner.py"],
+          "source_refs": ["DS-001"],
+          "issues": [],
+          "artifacts": []
+        },
+        "usage": {"prompt_tokens": 20, "completion_tokens": 10, "elapsed_ms": 12}
+      }
+    ]
+  },
+  "Momus": {
+    "steps": [
+      {
+        "kind": "model",
+        "output": {
+          "summary": "Design review completed; no blocking findings.",
+          "verdict": "passed",
+          "findings": [],
+          "required_checks": ["DS-COMPLETE", "TRACEABILITY"],
+          "passed_checks": ["DS-COMPLETE", "TRACEABILITY"],
+          "source_refs": ["DS-001"],
+          "issues": [],
+          "artifacts": []
+        },
+        "usage": {"prompt_tokens": 30, "completion_tokens": 15, "elapsed_ms": 18}
+      }
+    ]
+  },
+  "Argus": {
+    "steps": [
+      {
+        "kind": "model",
+        "output": {
+          "summary": "Artifact review completed; acceptance evidence verified.",
+          "verdict": "passed",
+          "findings": [],
+          "required_checks": ["UNIT_TESTS"],
+          "passed_checks": ["UNIT_TESTS"],
+          "source_refs": ["TASK-001"],
+          "issues": [],
+          "artifacts": []
+        },
+        "usage": {"prompt_tokens": 25, "completion_tokens": 12, "elapsed_ms": 16}
+      }
+    ]
+  },
+  "multi_step": {
+    "steps": [
+      {
+        "kind": "tool",
+        "name": "grep",
+        "arguments": {"pattern": "def run", "path": "backend/olympus"},
+        "result": {"matches": ["backend/olympus/agents/runtime/runner.py:1"]},
+        "usage": {"prompt_tokens": 5, "completion_tokens": 0, "elapsed_ms": 3}
+      },
+      {
+        "kind": "tool",
+        "name": "read_file",
+        "arguments": {"path": "backend/olympus/agents/runtime/runner.py"},
+        "result": {"content": "class AgentRunner: ..."},
+        "usage": {"prompt_tokens": 8, "completion_tokens": 0, "elapsed_ms": 5}
+      },
+      {
+        "kind": "model",
+        "output": {
+          "summary": "Multi-step inspection finished.",
+          "findings": ["runner validates input whitelist"],
+          "files": ["backend/olympus/agents/runtime/runner.py"],
+          "source_refs": ["DS-001"],
+          "issues": [],
+          "artifacts": []
+        },
+        "usage": {"prompt_tokens": 50, "completion_tokens": 25, "elapsed_ms": 40}
+      }
+    ]
+  }
+}
