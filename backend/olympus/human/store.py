@@ -80,7 +80,14 @@ class HumanRequestStore:
 
         existing = self.find(run_id=run_id, kind=kind, target_id=target_id, status="pending")
         if existing:
-            return existing                       # 幂等：不重建请求
+            if (existing.expected_version == expected_version and
+                    existing.expected_state_revision == expected_state_revision and
+                    existing.req_ref == req_ref and existing.ds_ref == ds_ref and
+                    existing.plan_ref == plan_ref and
+                    existing.required_reports == list(required_reports or [])):
+                return existing
+            # Same target ID is not the same approval package after a revision.
+            self.mark_stale(existing.request_id)
         request = HumanRequest(
             request_id=f"HR-{uuid.uuid4().hex[:8]}",
             run_id=run_id,

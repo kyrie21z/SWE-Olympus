@@ -2,7 +2,7 @@
 
 面向软件工程课程的多 Agent 工作流原型，由 **6 人、8 周**协作完成。项目承接上一阶段的需求规格文件，将业务需求逐步转成设计规格、开发任务、可视化编排与验收记录。业务内容由输入决定，校园报名仅是构造测试案例。
 
-> **当前进度（2026-11-15）：** P1 工程、数据契约、存储和导入页面，以及 P2 Runner、规划、复核与静态编译已随 PR #14/#15/#17 进入 main。本次修订补齐开放业务输入、语义审查结果接纳、依赖版本与取消边界。在线模型质量、动态调度、真实执行及完整前端联调仍待后续验证或接入。
+> **当前进度（2026-11-15，本地 P4 分支）：** P1/P2/P3 已合入主分支。P4 已增加正式 REQ 接纳、Athena/Momus 设计生成与检查、受控本地 Python 执行和独立工件验收；当前验证使用模拟模型与真实工具，尚未推送、未跑远端自动检查。完整验证范围和本机依赖限制见 [P4 交接](docs/p4-handoff.md)与[本地检查记录](docs/p4-local-validation.md)。HTTP、恢复和正式前端接线仍由 P5/P6 完成。
 
 ## 导航
 
@@ -13,13 +13,14 @@
 ## 1. 流程与进度
 
 ```mermaid
-flowchart LR
-    REQ["需求文件 REQ"] --> IN["正式接纳"]
-    IN --> DS["Athena：设计规格 DS"]
-    DS --> PLAN["Daedalus：任务计划"]
-    PLAN --> REVIEW["Momus 复核 / YOU 确认"]
-    REVIEW --> RUN["Zeus 编排 / 受控执行"]
-    RUN --> ACCEPT["独立复核 / 真人验收"]
+flowchart TD
+    REQ["需求文件正式接纳"] --> DS["Athena 设计 / Momus 检查"]
+    DS --> DA["YOU 批准设计"]
+    DA --> PLAN["Daedalus 规划 / Momus 检查"]
+    PLAN --> PA["YOU 批准计划"]
+    PA --> RUN["Zeus 编排 / 受控执行"]
+    RUN --> CHECK["实际检查 / Argus 复核"]
+    CHECK --> ACCEPT["Zeus 接纳任务 / YOU 最终验收"]
 ```
 
 图示为目标流程。模型生成内容，程序执行规则与状态检查，真人负责关键取舍与确认。
@@ -35,7 +36,10 @@ flowchart LR
 | 模型计划正文接入、语义审查发现进入独立报告 | 本次修订已接入，使用离线替身验证 |
 | 非校园业务的规划→复核→编译 | 有构造走查，输出不套用校园模板 |
 | RealProvider | 有配置与HTTP适配；替身传输检查通过不等于在线模型评测 |
-| 正式REQ授权核验、Athena设计、动态调度、真实执行、恢复 | 待P3/P4/P5接入 |
+| 正式REQ接纳、Athena设计与Momus独立检查 | P4服务已实现；真实确认记录由受信上游提供，样例保持构造标识 |
+| 动态调度、资源许可和人工关口 | P3已有；P4复用并补充设计/工件接线 |
+| 受控Python执行、实际检查证据、Argus工件复核 | P4已有本地验证；不是生产沙箱，未评测真实在线模型 |
+| 跨进程恢复、HTTP与正式页面接线 | 待P5/P6接入 |
 | 页面调用后端规划、正式DAG/泳道/命令交互 | 待P5/P6接入 |
 
 P2主要提供Python服务与无界面场景，当前网页仍是文件交接工作台。页面上的“生成设计规格”保持禁用，不能从是否有按钮判断后台模块是否存在。模型自评、退出码为零和UI颜色均不单独构成验收。
@@ -48,7 +52,7 @@ P2主要提供Python服务与无界面场景，当前网页仍是文件交接工
 | --- | --- |
 | 前端 | React / TypeScript / Vite / Ant Design / Lucide：文件交接和控制台 |
 | 服务 | Python 3.12 / FastAPI：基础服务及后续API入口 |
-| 工作流 | LangGraph：已有最小图；完整阶段图由P3实现 |
+| 工作流 | LangGraph：P3已有阶段关口与调度服务；P4复用并接入设计与执行 |
 | 数据 | Pydantic / JSON Schema / AJV / SQLite：同源契约与事务记录 |
 | 验证 | Ruff / pytest / Vitest / Playwright / GitHub Actions |
 
@@ -164,6 +168,16 @@ backend/olympus/
   agents/runtime/          # Runner、provider、权限与执行记录
   agents/daedalus/         # 语义计划接入，程序生成版本/指纹
   agents/momus/planning/   # 程序检查、模型发现与有限返修
+  requirements_bridge/    # P4 正式需求接纳与受信确认核验
+  agents/athena/          # P4 设计生成、有限返修和批准接线
+  agents/momus/design/    # P4 独立设计审查
+  agents/momus/acceptance/ # P4 冻结独立验收定义
+  agents/hephaestus/      # P4 授权实现变更
+  agents/argus/           # P4 独立工件复核
+  execution/              # P4 本地执行、证据、查询取消与验收
+  orchestrator/           # P3 动态调度、许可与状态机
+  commands/               # P3 人工命令注册和处理
+  human/                  # P3 人工请求与等待恢复
   reviews/common/         # 独立报告和问题关闭权限
   requests/               # 发送账本及query/cancel
   planning/               # 任务卡、校验、打包与静态编译
@@ -189,7 +203,7 @@ docs/                     # 契约、交接、参考和截图
 - `RequestLedger.cancel` 只有未发送或已获得提供方确认的请求才可确定取消；在途无确认保持outcome_unknown、预留预算和待核对标记。
 - 正式状态只能由受信服务提交，MockClient命令仍返回NOT_READY；风险接受不等于验证通过，路径工具不等于完整执行隔离。
 
-完整契约和后续接线见[P2交接说明](docs/p2-handoff.md)。运行中的请求结果未知时不能盲目重发；真实请求查询/取消证据由对应provider适配器提供。
+规划契约见[P2交接说明](docs/p2-handoff.md)，设计、执行及验收接线见[P4交接说明](docs/p4-handoff.md)。运行中的请求结果未知时不能盲目重发；真实请求查询/取消证据由对应提供方适配器提供。
 
 <a id="checks"></a>
 
@@ -224,7 +238,7 @@ python scripts/project.py browser
 
 本次新增回归位于[交接回归检查](tests/planning/test_handoff_regressions.py)，覆盖无效输出、另一业务、审查阻断、依赖失效、计划范围与取消，以及真实HTTP适配器的替身传输。既有校园八任务十二边与单次返修仍保留。具体数量及结果以[最新Actions](https://github.com/kyrie21z/SWE-Olympus/actions)和PR为准。
 
-这些检查验证程序行为、构造样例和离线接线，不代表在线模型质量、真实执行或整个系统已经通过验收。
+P4 新增的设计、真实执行和异常场景验证范围见[本地检查记录](docs/p4-local-validation.md)。其中 Python 检查进程与工件真实生成，模型响应为模拟数据；不能据此宣称在线模型质量或整个系统已经通过验收。
 
 <a id="collaboration"></a>
 
@@ -263,6 +277,6 @@ python scripts/project.py browser
 
 ## 9. 文档
 
-[文件交接](docs/input-handoff.md) · [公共契约](docs/contracts/README.md) · [P1交接](docs/p1-handoff.md) · [P2交接](docs/p2-handoff.md) · [参考说明](docs/reference-notes.md) · [规划夹具](fixtures/plans/) · [Issue](https://github.com/kyrie21z/SWE-Olympus/issues) · [PR](https://github.com/kyrie21z/SWE-Olympus/pulls)
+[文件交接](docs/input-handoff.md) · [公共契约](docs/contracts/README.md) · [P1交接](docs/p1-handoff.md) · [P2交接](docs/p2-handoff.md) · [P3交接](docs/p3-handoff.md) · [P4交接](docs/p4-handoff.md) · [参考说明](docs/reference-notes.md) · [规划夹具](fixtures/plans/) · [Issue](https://github.com/kyrie21z/SWE-Olympus/issues) · [PR](https://github.com/kyrie21z/SWE-Olympus/pulls)
 
 后续成员接棒时同步更新能力表、启动步骤、检查证据与文档入口；区分程序已实现、构造走查通过和真实模型已验证。

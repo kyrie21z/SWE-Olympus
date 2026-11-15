@@ -90,10 +90,10 @@ def build_gate_graph(bus: CommandBus, store: HumanRequestStore, *,
             "expected_state_revision": request.expected_state_revision,
             "payload": request.payload,
         })
-        if not isinstance(answer, dict):
-            answer = {"decision": str(answer)}
+        if not isinstance(answer, dict) or answer.get("decision") not in {"approve", "reject"}:
+            raise ValueError("an explicit approve/reject decision is required")
         return {
-            "decision": str(answer.get("decision", "approve")),
+            "decision": str(answer["decision"]),
             "note": str(answer.get("note", "")),
         }
 
