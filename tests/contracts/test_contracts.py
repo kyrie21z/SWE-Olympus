@@ -77,3 +77,11 @@ def test_risk_unknown_and_stale_are_not_success(scenarios):
 def test_self_review_rejected(bundle):
     with pytest.raises(ValidationError):
         m.Review.model_validate(bundle.review.model_dump() | {"reviewer": bundle.review.author})
+
+
+def test_downloadable_handoff_example_uses_canonical_requirement():
+    path = FIXTURES.parents[1] / "frontend/public/examples/requirement.json"
+    req = m.Requirement.model_validate_json(path.read_text(encoding="utf-8"))
+    assert req.confirmation.origin == "synthetic_fixture"
+    assert req.confirmation.target == req.ref()
+    assert req.provenance[0].kind == "synthetic_fixture"

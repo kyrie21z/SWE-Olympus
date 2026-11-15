@@ -261,12 +261,52 @@ def build_fixture():
     )
 
 
+def build_import_example():
+    """A domain-neutral handoff example, explicitly synthetic and never authorized."""
+    content = {
+        "requirements": [
+            {
+                "id": "FR-001",
+                "text": "按标题检索团队文档",
+                "acceptance": "输入标题关键词返回匹配文档；无匹配时显示空结果",
+            },
+            {
+                "id": "FR-002",
+                "text": "查看文档历史版本",
+                "acceptance": "保存两次修订后，可分别查看两个版本的内容",
+            },
+        ],
+        "out_of_scope": ["公开分享", "付费订阅"],
+    }
+    req = Requirement(
+        object_id="REQ-example",
+        version=1,
+        content=content,
+        content_hash=fingerprint(content),
+        provenance=[
+            Provenance(
+                kind="synthetic_fixture", source_id="EXAMPLE-01", locator="构造交接样例，非用户已确认的需求"
+            )
+        ],
+    )
+    req.confirmation = Confirmation(
+        confirmation_id="H-example",
+        actor="YOU-fixture",
+        origin="synthetic_fixture",
+        target=req.ref(),
+        dependencies=[],
+        confirmed_at="2026-11-15T08:00:00Z",
+    )
+    return req
+
+
 def outputs():
     bundle = build_fixture()
     base = bundle.model_dump(mode="json")
     results = {
         "docs/contracts/schema.json": ContractBundle.model_json_schema(mode="serialization"),
         "fixtures/contracts/valid.json": base,
+        "frontend/public/examples/requirement.json": build_import_example().model_dump(mode="json"),
     }
     for name, value in base.items():
         if name == "schema_version":

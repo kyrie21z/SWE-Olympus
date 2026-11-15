@@ -22,7 +22,7 @@ python scripts/project.py backend
 python scripts/project.py frontend
 ```
 
-打开 `http://127.0.0.1:5173`；后端健康检查 `http://127.0.0.1:8000/health`。前端参考 Ant Design Pro，使用 Ant Design 6 的浅色控制台布局。支持任意软件需求 Prompt 的录入、编辑、本地保存、搜索和 JSON 导出，刷新后可继续查看。**当前只有需求草稿和流程预览；真实讨论、规格生成、调度与批准尚待后续阶段接入。** 页面不加载固定业务案例，也不会把输入自动标记为已确认。
+打开 `http://127.0.0.1:5173`；后端健康检查 `http://127.0.0.1:8000/health`。前端保留 Ant Design Pro 风格，以**导入上一阶段的需求规格文件**为主入口：REQ JSON 支持结构预检及条目预览，Markdown/TXT 作为待整理材料保存。文件业务领域不限，支持本地保存、搜索、刷新恢复和原文件导出。**当前是文件交接与流程预览；正式确认核验、设计生成、任务分解和执行仍待后续模块接入。** PDF/Word 解析尚未接入，不会把上传成功显示为需求已确认。
 
 ## 统一命令
 
@@ -48,7 +48,7 @@ frontend/src/
   contracts/             # 自动生成的TS类型
   data/core/             # 客户端协议、事件归并/缺口检查
   data/mock/             # 离线适配器
-  projects/              # 通用Prompt草稿及浏览器本地存储
+  imports/               # 文件读取、REQ预检、只读预览与本地存储
   App.tsx                # Ant Design控制台，供P6扩展
   main.tsx               # 主题与应用入口
 fixtures/contracts/      # 合法/非法样例、8任务12边、7类状态
@@ -56,9 +56,9 @@ tests/                   # 单元、契约、存储和场景检查
 docs/                    # 契约、参考和P2交接
 ```
 
-P2消费公共模型、固定DS与PLAN夹具，增加Runner/复核器和静态规划。P3实现动态调度和命令关口；P4接设计与受控执行；P5恢复/HTTP；P6扩展完整可视化。P1不提前实现这些业务层。正式运行共享状态只能由服务端受信提交，运行缓存只读；MockClient命令明确返回NOT_READY。浏览器中的Prompt草稿与正式REQ/DS/Run对象分离，不能当作人工确认或运行证据。
+P2消费公共模型、固定DS与PLAN夹具，增加Runner/复核器和静态规划。P3实现动态调度和命令关口；P4接正式REQ导入、设计与受控执行；P5恢复/HTTP；P6扩展完整可视化。正式运行共享状态只能由服务端受信提交，运行缓存只读；MockClient命令明确返回NOT_READY。本地导入记录与正式REQ/DS/Run对象分离，文件自带的确认记录不能代替服务端授权校验。
 
-详细语义见[公共契约](docs/contracts/README.md)、[P1验收与交接](docs/p1-handoff.md)、[参考说明](docs/reference-notes.md)。既有校园案例仅保留在自动测试夹具中，不作为产品默认输入或生成结果。H-01为synthetic_fixture，不能冒充真人决定。
+详细语义见[文件交接说明](docs/input-handoff.md)、[公共契约](docs/contracts/README.md)、[P1验收与交接](docs/p1-handoff.md)、[参考说明](docs/reference-notes.md)。页面提供[REQ格式样例](frontend/public/examples/requirement.json)，明确标为构造数据；既有校园案例仅保留在自动测试夹具中。两者均不作为产品默认输入或生成结果，synthetic_fixture 不能冒充真人决定。
 
 ## P1分为两个PR
 
@@ -66,8 +66,9 @@ P2消费公共模型、固定DS与PLAN夹具，增加Runner/复核器和静态�
 
 ## 界面与数据边界
 
-- [欢迎页](docs/preview/projects.png) / [项目工作台](docs/preview/workstation.png) / [手机版](docs/preview/mobile.png)。截图内项目来自人工输入，用于演示交互。
-- 草稿只保存在当前浏览器的当前站点，不上传、不跨设备同步，最多100项。请导出重要内容后再清理浏览器存储。
+- [文件导入页](docs/preview/projects.png) / [规格交接工作台](docs/preview/workstation.png) / [手机版](docs/preview/mobile.png)。截图使用构造材料演示交互，不代表生成或执行结果。
+- 文件只保存在当前浏览器的当前站点，不上传、不跨设备同步。单文件最多512 KB，最多20份，总原文不超过2 MB；请保留原文件备份。
 - 格式异常、版本不兼容、存储拒绝或空间不足会明确报错；不会以空列表覆盖损坏的原数据。
 - 保存前检查其他页面是否已更新。该检查只是本地冲突提示，localStorage不提供跨标签页事务；正式多用户并发由后续HTTP/数据库服务接管。
-- 样例状态与风险验收边界继续由数据层测试覆盖，产品界面展示的均为实际输入，未生成产物使用空状态。
+- 旧版Prompt草稿保留在原存储项中，可导出，不会自动转换为REQ或删除。导入原文只读，补充说明另存，更换文件建立新记录。
+- 样例状态与风险验收边界继续由数据层测试覆盖，未生成产物使用空状态；生成设计规格按钮保持禁用。

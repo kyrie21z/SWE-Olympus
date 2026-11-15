@@ -1306,3 +1306,239 @@ p {
     scroll-behavior: auto !important;
   }
 }
+
+/* File handoff: a preview and precheck, never an approval action. */
+#import-card {
+  scroll-margin-top: 82px;
+}
+.import-card .ant-upload-drag {
+  background: #f8fbff;
+  border: 1px dashed #b5ccf8;
+}
+.import-card .ant-upload-drag:hover {
+  background: #f0f6ff;
+}
+.import-card .ant-upload-btn {
+  padding: 30px 16px !important;
+}
+.upload-symbol {
+  display: grid;
+  place-items: center;
+  color: #417de8;
+  margin-bottom: 15px;
+}
+.ant-upload-drag strong {
+  font-size: 15px;
+  font-weight: 500;
+  color: #344b70;
+}
+.ant-upload-drag p {
+  font-size: 12px;
+  color: #8393ac;
+  margin: 10px 0 6px;
+}
+.ant-upload-drag small {
+  font-size: 11px;
+  color: #95a3b8;
+}
+.format-note {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #94a1b5;
+  margin: 13px 0 22px;
+}
+.import-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #8292ac;
+  font-size: 12px;
+  padding: 15px 0;
+}
+.import-alert {
+  margin-bottom: 20px;
+}
+.selected-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  background: #f5f8ff;
+  border: 1px solid #e3ebfb;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  color: #5981c3;
+}
+.selected-file > div {
+  flex: 1;
+  min-width: 0;
+}
+.selected-file strong {
+  display: block;
+  font-size: 13px;
+  color: #3a5276;
+  overflow-wrap: anywhere;
+}
+.selected-file span {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+  color: #8f9eb4;
+}
+.import-fields {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.import-fields label {
+  font-size: 13px;
+  color: #52637f;
+  margin-top: 5px;
+}
+.import-fields small {
+  font-size: 11px;
+  color: #9ca9bb;
+  margin-left: 8px;
+}
+.inspection-panel {
+  padding: 18px 20px;
+  border: 1px solid #e5ebf4;
+  border-radius: 8px;
+  background: #fbfcfe;
+  margin-bottom: 20px;
+}
+.inspection-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+  font-size: 13px;
+}
+.check-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 14px;
+}
+.check-item svg {
+  margin-top: 2px;
+  color: #a0aec3;
+}
+.check-passed svg {
+  color: #57a58d;
+}
+.check-failed svg {
+  color: #d26868;
+}
+.check-item strong {
+  font-size: 12px;
+  font-weight: 500;
+  color: #586a85;
+}
+.check-item p {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #94a0b3;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.import-preview {
+  margin: 0 0 22px;
+}
+.requirement-details > .ant-alert {
+  margin-bottom: 24px;
+}
+.requirement-details .ant-alert-description {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.requirement-details h3 {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 25px 0 15px;
+}
+.requirement-details .ant-descriptions {
+  margin: 18px 0;
+}
+.hash-text {
+  font-size: 11px;
+  word-break: break-all;
+}
+.scope-list {
+  font-size: 13px;
+  color: #7a8aa3;
+  line-height: 1.9;
+  padding-left: 20px;
+}
+.source-list {
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+  color: #8191aa;
+  overflow-wrap: anywhere;
+}
+.source-list > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.material-preview {
+  margin-top: 24px;
+  color: #8294b2;
+}
+.material-preview p {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.material-preview pre,
+.raw-source {
+  max-height: 380px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 18px;
+  background: #f8fafd;
+  border: 1px solid #e8edf5;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #5c6f8e;
+  line-height: 1.9;
+  margin: 0;
+}
+.next-stage {
+  margin-top: 25px;
+  padding-top: 18px;
+  border-top: 1px solid #edf0f5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  font-size: 12px;
+  color: #92a0b6;
+}
+.flow-stage > span:last-child {
+  text-align: center;
+  line-height: 1.6;
+}
+@media (max-width: 760px) {
+  .next-stage {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .source-list > div {
+    flex-wrap: wrap;
+  }
+  .inspection-panel {
+    padding: 15px;
+  }
+  .project-summary-main p {
+    overflow-wrap: anywhere;
+  }
+  .import-card .form-footer {
+    margin-top: 12px;
+  }
+  .flow-stage-wrap:last-child {
+    grid-column: 1 / -1;
+  }
+}
