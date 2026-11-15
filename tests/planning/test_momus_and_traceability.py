@@ -10,8 +10,11 @@ from olympus.agents.momus.planning import (
     MomusPlanReviewer,
     PlanningWorkflow,
 )
+from olympus.agents.runtime import AgentRunner, ExecutionRecordService, MockProvider
 from olympus.contracts.models import Design, Plan, Requirement, Task, fingerprint
 from olympus.planning.validator import validate_plan_semantics
+from olympus.requests import RequestLedger
+from olympus.reviews.common import CommonReviewer
 from olympus.traceability.planning import (
     PlanningTraceabilityIndex,
     build_planning_traceability,
@@ -412,3 +415,56 @@ def test_workflow_requires_independent_roles(bundle):
 
     with pytest.raises(ValueError, match="different roles"):
         PlanningWorkflow(SameRolePlanner())
+
+
+def wired_runtime():
+    ledger = RequestLedger()
+    records = ExecutionRecordService()
+    runner = AgentRunner(MockProvider(), ledger=ledger, records=records)
+    return runner, ledger, records, CommonReviewer()
+
+
+def test_daedalus_plan_records_the_call_and_falls_back_to_deterministic_build(bundle):
+    runner, ledger, records, _ = wired_runtime()
+    plan = DaedalusPlanner(runner=runner).plan(bundle.requirement, bundle.design)
+    assert plan.ref() == bundle.plan.ref()
+    entry = ledger.entries()[0]
+    assert (entry.role_id, entry.task_kind) == ("Daedalus", "plan")
+    assert (entry.logical_task_id, entry.task_id) == ("LOG-PLAN-I001", "PLAN-I001")
+    assert entry.status == "succeeded"
+    assert len(records.list_by_role("Daedalus")) == 1
+
+
+def test_momus_review_records_the_call_and_registers_with_common_reviewer(bundle):
+    runner, ledger, records, common = wired_runtime()
+    result = MomusPlanReviewer(common_reviewer=common, runner=runner).review(
+        bundle.plan, bundle.requirement, bundle.design
+    )
+    entry = ledger.entries()[0]
+    assert (entry.role_id, entry.task_kind) == ("Momus", "plan_review")
+    assert (entry.logical_task_id, entry.task_id) == ("LOG-REVIEW-PLAN-I001-V1", "PLAN-I001")
+    assert entry.status == "succeeded"
+    assert len(records.list_by_role("Momus")) == 1
+    assert common.get(result.review.review_id).review.verdict == "passed"
+    assert result.review.findings == []
+
+
+def test_close_blockers_closes_the_recorded_common_findings(bundle):
+    common = CommonReviewer()
+    reviewer = MomusPlanReviewer(authorized_closers=["YOU"], common_reviewer=common)
+    plan = counterexample("cycle")
+    review = reviewer.review(plan, bundle.requirement, bundle.design).review
+    assert common.get(review.review_id).blocking_finding_ids
+    with pytest.raises(PermissionError, match="未被授权"):
+        reviewer.close_blockers(review, plan, closer="Zeus")
+    assert common.get(review.review_id).blocking_finding_ids
+    closed = reviewer.close_blockers(review, plan, closer="YOU")
+    assert closed.verdict == "passed"
+    record = common.get(review.review_id)
+    assert record.blocking_finding_ids == []
+    assert all(finding.status == "closed" for finding in record.submission.findings)
+    assert all(finding.closed_by == "YOU" for finding in record.submission.findings)
+    assert all(
+        finding.closure_reason == "closed via close_blockers"
+        for finding in record.submission.findings
+    )
