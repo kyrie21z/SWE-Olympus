@@ -45,7 +45,6 @@ class ExecutionRecordService:
     def record(
         self,
         record: ExecutionRecord,
-        *,
         role_id: str = "unknown",
         logical_task_id: str | None = None,
         run_id: str | None = None,
