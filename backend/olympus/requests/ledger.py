@@ -28,9 +28,7 @@ from olympus.contracts.models import (
 )
 
 RequestKind = Literal["model", "tool"]
-LedgerRequestStatus = Literal[
-    "prepared", "sent", "succeeded", "failed", "cancelled", "outcome_unknown"
-]
+LedgerRequestStatus = Literal["prepared", "sent", "succeeded", "failed", "cancelled", "outcome_unknown"]
 OutcomeStatus = Literal["succeeded", "failed", "outcome_unknown"]
 CancelHookStatus = Literal["cancelled", "unknown", "already_terminal"]
 
@@ -165,9 +163,7 @@ class RequestLedger:
                     raise ValueError("idempotency key conflict")
                 return existing
             if existing.status == "outcome_unknown":
-                raise RuntimeError(
-                    "cannot blindly resend outcome_unknown request before reconciliation"
-                )
+                raise RuntimeError("cannot blindly resend outcome_unknown request before reconciliation")
             new_key = self._next_resend_key(idempotency_key)
             return self._store(
                 LedgerEntry(
@@ -333,7 +329,11 @@ class RequestLedger:
             )
         entry.cancel_requested = True
         if hook_status == "cancelled":
-            was_sent = entry.status == "sent" or entry.provider_request_id is not None
+            was_sent = (
+                entry.status in ("sent", "outcome_unknown")
+                or entry.calls_consumed > 0
+                or entry.provider_request_id is not None
+            )
             entry.status = "cancelled"
             entry.needs_reconciliation = False
             entry.budget_held = False

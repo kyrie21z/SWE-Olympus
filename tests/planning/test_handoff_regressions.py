@@ -101,6 +101,19 @@ def test_full_plan_proposal_is_accepted_without_file_write_authority(bundle):
     assert provider.request.permissions.allowed_write_scopes == []
 
 
+@pytest.mark.parametrize("omitted", ["priority", "policy", "required", "policy.schema_version"])
+def test_task_defaults_are_normalized_before_fingerprinting(omitted, bundle):
+    tasks = [task.semantic_content() for task in bundle.plan.tasks]
+    for task in tasks:
+        if omitted == "policy.schema_version":
+            task["policy"].pop("schema_version")
+        else:
+            task.pop(omitted)
+    runner = AgentRunner(MockProvider(fixtures={"Daedalus:plan": {"output": {"tasks": tasks}}}))
+    result = DaedalusPlanner(runner).plan(bundle.requirement, bundle.design)
+    assert result.ref() == bundle.plan.ref()
+
+
 def test_generic_semantic_plan_uses_complete_inputs_and_program_fingerprints(documents):
     req, ds, expected = documents
     draft = {"tasks": [task.semantic_content() for task in expected.tasks]}
@@ -211,6 +224,27 @@ def test_sent_cancel_without_provider_confirmation_stays_reconcilable():
     assert cancelled.status == "outcome_unknown"
     assert cancelled.needs_reconciliation
     assert ledger.query(entry.request_id).budget_held
+    assert ledger.total_calls_accounted() == 1
+
+
+def test_cancel_confirmation_after_unknown_does_not_refund_sent_call():
+    ledger = RequestLedger()
+    entry = ledger.prepare(
+        attempt_id="A",
+        logical_task_id="L",
+        run_id="R",
+        task_id="T",
+        role_id="Athena",
+        task_kind="design",
+        input_hash="a" * 64,
+        idempotency_key="K",
+    )
+    ledger.mark_sent(entry.request_id)
+    assert ledger.cancel(entry.request_id).status == "outcome_unknown"
+    confirmed = ledger.cancel(entry.request_id, provider_cancel_hook=lambda _: "cancelled")
+    assert confirmed.cancelled
+    assert confirmed.reason == "provider_cancelled"
+    assert ledger.entries()[0].calls_consumed == 1
     assert ledger.total_calls_accounted() == 1
 
 

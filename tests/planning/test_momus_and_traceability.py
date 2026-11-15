@@ -424,7 +424,7 @@ def wired_runtime():
     return runner, ledger, records, CommonReviewer()
 
 
-def test_daedalus_plan_records_the_call_and_falls_back_to_deterministic_build(bundle):
+def test_daedalus_plan_records_the_call_from_a_bound_mock_proposal(bundle):
     runner, ledger, records, _ = wired_runtime()
     plan = DaedalusPlanner(runner=runner).plan(bundle.requirement, bundle.design)
     assert plan.ref() == bundle.plan.ref()

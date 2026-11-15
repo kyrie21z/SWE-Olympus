@@ -4,19 +4,31 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import JsonValue, ValidationError
+from pydantic import JsonValue, ValidationError, create_model
 
 from olympus.agents.runtime import AgentRunner, OutputSchemaError, RolePermissions, RoleRunInput
-from olympus.contracts.models import Design, Plan, Provenance, Ref, Requirement, Task, fingerprint
+from olympus.contracts.models import Contract, Design, Plan, Provenance, Ref, Requirement, Task, fingerprint
 from olympus.planning.models import TaskCard, build_task_cards
 from olympus.planning.validator import design_element_ids, requirement_ids, validate_plan_semantics
 
 DAEDALUS = "Daedalus"
 PLAN_TASK_KIND = "plan"
 ROOT = Path(__file__).resolve().parents[4]
+# Share Task's field types and defaults, without its version/hash validator.
+# The proposal is normalized first, then the canonical Task validates invariants.
+TaskProposal = create_model(
+    "TaskProposal",
+    __base__=Contract,
+    **{
+        name: (field.annotation, deepcopy(field))
+        for name, field in Task.model_fields.items()
+        if name not in {"schema_version", "version", "content_hash"}
+    },
+)
 
 _FLAGGED_CODES = (
     "UNCOVERED_REQUIREMENT",
@@ -49,7 +61,7 @@ class DaedalusPlanner:
 
     @staticmethod
     def draft_schema() -> dict[str, JsonValue]:
-        task = Task.model_json_schema()
+        task = TaskProposal.model_json_schema()
         for key in ("version", "content_hash", "schema_version"):
             task["properties"].pop(key, None)
         task["required"] = [key for key in task["required"] if key not in ("version", "content_hash")]
@@ -122,6 +134,7 @@ class DaedalusPlanner:
                     for key, value in raw.items()
                     if key not in {"schema_version", "version", "content_hash"}
                 }
+                data = TaskProposal.model_validate(data).model_dump(mode="json", exclude={"schema_version"})
                 tasks.append(Task(**data, version=1, content_hash=fingerprint(data)))
             content = {
                 "tasks": [
