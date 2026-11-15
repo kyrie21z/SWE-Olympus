@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from olympus.commands.core.bus import CommandBus
 from olympus.commands.runtime_handlers import RuntimeCommandHandlers
@@ -39,6 +39,7 @@ class RunRuntime:
     scheduler: Scheduler | None = None
     bus: CommandBus | None = None
     handlers: RuntimeCommandHandlers | None = None
+    repairs: list[dict] = field(default_factory=list)
 
     @property
     def has_plan(self) -> bool:

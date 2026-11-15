@@ -8,14 +8,19 @@ from .errors import RecoveryError, RecoveryGap
 from .policy import BoundedRetryPolicy, RetryDecision
 from .rebuild import rebuild_context, verify_chain
 from .registry import RunRuntime, RuntimeRegistry
+from .repair import RepairError, RepairOutcome, plan_repair, repair_dependencies
 
 __all__ = [
     "BoundedRetryPolicy",
     "RecoveryError",
     "RecoveryGap",
+    "RepairError",
+    "RepairOutcome",
     "RetryDecision",
     "RunRuntime",
     "RuntimeRegistry",
+    "plan_repair",
     "rebuild_context",
+    "repair_dependencies",
     "verify_chain",
 ]
