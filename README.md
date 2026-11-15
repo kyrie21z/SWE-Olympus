@@ -23,7 +23,7 @@ python scripts/project.py frontend
 ```
 
 页面：http://127.0.0.1:5173；health：http://127.0.0.1:8000/health。
-前端支持项目入口和工作台导航，目前为工程启动壳。公共任务数据在Issue #2接入。
+前端参考 Ant Design Pro，采用 Ant Design 6 的浅色控制台：欢迎总览、开放式需求表单、项目列表、工作台、角色说明与使用指南。支持任意业务 Prompt 的创建、编辑、搜索和 JSON 导出；本 PR 草稿只保留在页面会话，刷新后清除。Issue #2 接入浏览器本地持久化。生成服务尚未接入，页面不展示虚构任务或默认校园项目。
 
 `python scripts/project.py check`执行Ruff、后端全部测试和TypeScript/Vite构建。
 `python scripts/project.py scenario`执行无界面场景。
@@ -38,3 +38,5 @@ python scripts/project.py frontend
 
 **合并顺序：工程基础PR（#1）→数据与契约PR（#2）。** 第二个PR基于本分支，先评审第一层，再接入第二层。
 P1两个Issue分别关闭；原先“一主PR关联两项”的约定在本次交付中替换为两个PR。
+
+界面参考：[Ant Design Pro](https://preview.pro.ant.design/welcome/)。保留现有 React/Vite 工程，使用 Ant Design 组件；未迁移 Umi 或复制参考站品牌。
