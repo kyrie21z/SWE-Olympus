@@ -117,7 +117,8 @@ def test_replay_is_idempotent_and_adds_no_events(tmp_path, bundle):
     assert len(runtime.ctx.events) == events_after_first
 
 
-def test_deferred_action_still_refuses_until_registered(tmp_path, bundle):
+def test_retry_rejects_task_in_wrong_state(tmp_path, bundle):
+    """处理器已注册：不再是 NOT_READY，而是按任务实际状态拒绝。"""
     client, app, _ = build(tmp_path, bundle)
     client.post("/api/commands", json=command(bundle, "start", operation_id="op-start", revision=0))
     runtime = app.state.runs.registry.get(bundle.run.run_id)
@@ -136,7 +137,8 @@ def test_deferred_action_still_refuses_until_registered(tmp_path, bundle):
 
     assert response.status_code == 200
     assert response.json()["status"] == "rejected"
-    assert response.json()["reason_code"] == "not_ready"
+    # T01 此时是 ready，只有 failed/blocked 才能重试。
+    assert response.json()["reason_code"] == "bad_state"
 
 
 def test_capabilities_declare_the_current_limits(tmp_path, bundle):

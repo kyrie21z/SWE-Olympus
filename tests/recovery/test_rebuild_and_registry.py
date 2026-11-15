@@ -135,17 +135,21 @@ def test_attach_plan_is_single_shot(tmp_path, bundle):
         runtime.attach_plan(bundle.plan, package.manifest)
 
 
-def test_attached_bus_still_defers_p5_actions(tmp_path, bundle):
-    """M2 只建骨架：四个运行期动作必须仍然明确拒绝，而不是假装成功。"""
+def test_attached_bus_registers_the_four_runtime_actions(tmp_path, bundle):
+    """M4 之后，四个动作必须从 NOT_READY 变成真实处理器。"""
     store, _ = seed_run(tmp_path, bundle)
     runtime = RuntimeRegistry(store).get(bundle.run.run_id)
     package = PlanService().prepare(bundle.requirement, bundle.design, bundle.plan)
     runtime.attach_plan(bundle.plan, package.manifest)
     task = next(task for task in bundle.plan.tasks if task.task_id == "T01")
 
+    catalog = {row["action"]: row for row in runtime.bus.catalog()}
+    for action in ("retry", "reassign", "accept_risk", "request_change"):
+        assert catalog[action]["implemented"] is True
+
     receipt = runtime.bus.dispatch(
         Command(
-            operation_id="op-retry-before-handler",
+            operation_id="op-retry-on-draft",
             run_id=bundle.run.run_id,
             actor="YOU",
             action="retry",
@@ -156,5 +160,6 @@ def test_attached_bus_still_defers_p5_actions(tmp_path, bundle):
         )
     )
 
+    # 已注册：不再是 NOT_READY；draft 状态下按 run 前置条件拒绝。
     assert receipt.status == "rejected"
-    assert receipt.reason_code == "not_ready"
+    assert receipt.reason_code == "bad_state"

@@ -53,6 +53,11 @@ def read_events(
     return runs.events(run_id, after_seq)
 
 
+@router.get("/runs/{run_id}/trail")
+def read_trail(run_id: str, runs: RunQueryService = Depends(get_runs)) -> dict:
+    return runs.trail(run_id)
+
+
 @router.post("/commands", response_model=Receipt)
 def submit_command(
     command: Command,

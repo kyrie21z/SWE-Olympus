@@ -15,6 +15,7 @@ import threading
 from dataclasses import dataclass
 
 from olympus.commands.core.bus import CommandBus
+from olympus.commands.runtime_handlers import RuntimeCommandHandlers
 from olympus.contracts.models import Plan
 from olympus.orchestrator.scheduler import (
     DEFAULT_EXECUTOR_CAPACITY,
@@ -37,6 +38,7 @@ class RunRuntime:
     plan: Plan | None = None
     scheduler: Scheduler | None = None
     bus: CommandBus | None = None
+    handlers: RuntimeCommandHandlers | None = None
 
     @property
     def has_plan(self) -> bool:
@@ -66,6 +68,9 @@ class RunRuntime:
             executor_capacity=executor_capacity,
         )
         self.bus = CommandBus(ctx=self.ctx, scheduler=self.scheduler)
+        # 四个运行期人工动作在这一刻从 NOT_READY 变成真实处理器（issue #9）。
+        self.handlers = RuntimeCommandHandlers()
+        self.handlers.register(self.bus)
         return self
 
 

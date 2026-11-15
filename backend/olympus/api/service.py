@@ -48,8 +48,24 @@ class RunQueryService:
         return self._registry
 
     def snapshot(self, run_id: str) -> Run:
+        return self._runtime(run_id).ctx.run
+
+    def trail(self, run_id: str) -> dict:
+        """命令痕迹：提示原文、风险理由、改派目标。
+
+        这是审计线索，不是权威状态；权威状态始终在快照与事件里。
+        """
+        runtime = self._runtime(run_id)
+        handlers = runtime.handlers
+        return {
+            "run_id": run_id,
+            "assignments": handlers.assignments(run_id) if handlers else {},
+            "entries": handlers.trail(run_id) if handlers else [],
+        }
+
+    def _runtime(self, run_id: str):
         try:
-            return self._registry.get(run_id).ctx.run
+            return self._registry.get(run_id)
         except KeyError as exc:
             # 未知运行：让上层映射成 404，而不是 500。
             raise RunNotFound(f"运行 {run_id} 不存在") from exc
