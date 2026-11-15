@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   App,
   Avatar,
   Badge,
@@ -10,159 +11,92 @@ import {
   Descriptions,
   Drawer,
   Empty,
-  Form,
   Input,
   Menu,
   Modal,
   Select,
   Space,
+  Spin,
   Steps,
   Table,
   Tabs,
   Tag,
   Tooltip,
+  Upload,
 } from "antd";
 import {
   ArrowRight,
   ArrowUpRight,
-  BookOpen,
-  Bot,
-  Boxes,
   Check,
   ChevronRight,
   CircleHelp,
   ClipboardList,
+  Clock3,
+  Download,
+  FileCheck2,
   FileText,
   FolderOpen,
-  GitBranch,
   Github,
-  Home,
   Layers3,
   Menu as MenuIcon,
-  MessageSquare,
   Plus,
   Search,
   ShieldCheck,
   Sparkles,
-  Waypoints,
+  UploadCloud,
   Workflow,
-  Pencil,
-  Download,
-  Clock3,
+  X,
 } from "lucide-react";
+import { navItems, pages, roles, type Page } from "./shell-config";
 import {
-  createDraft,
-  type DraftInput,
-  type ProjectDraft,
-} from "./projects/model";
-import { draftStorageLabel, loadDrafts, saveDrafts } from "./projects/storage";
+  downloadText,
+  readRequirementFile,
+  statusLabels,
+  type ImportedRequirement,
+  type Inspection,
+} from "./imports/model";
+import { exampleUrl, inspectRequirement } from "./imports/inspect";
+import {
+  exportLegacy,
+  loadImports,
+  saveImports,
+  storageLabel,
+} from "./imports/storage";
+import { InspectionPanel, RequirementDetails } from "./imports/Preview";
 
-type Page = "home" | "projects" | "workstation" | "agents" | "guide";
-const pages = {
-  home: "欢迎总览",
-  projects: "项目中心",
-  workstation: "项目工作台",
-  agents: "协作角色",
-  guide: "使用指南",
-};
-const navItems = [
-  { key: "home", icon: <Home size={18} />, label: pages.home },
-  {
-    type: "group" as const,
-    label: "项目空间",
-    children: [
-      {
-        key: "projects",
-        icon: <FolderOpen size={18} />,
-        label: pages.projects,
-      },
-      {
-        key: "workstation",
-        icon: <Workflow size={18} />,
-        label: pages.workstation,
-      },
-    ],
-  },
-  {
-    type: "group" as const,
-    label: "协作与资源",
-    children: [
-      { key: "agents", icon: <Bot size={18} />, label: pages.agents },
-      { key: "guide", icon: <BookOpen size={18} />, label: pages.guide },
-    ],
-  },
-];
-const roles = [
-  {
-    name: "Athena",
-    title: "设计规格",
-    icon: Layers3,
-    color: "blue",
-    text: "将已确认的需求整理为设计边界、模块与接口，保留授权来源。",
-  },
-  {
-    name: "Daedalus",
-    title: "任务规划",
-    icon: Waypoints,
-    color: "purple",
-    text: "拆分任务，建立依赖与验收条件，让每一项工作有明确的输入和输出。",
-  },
-  {
-    name: "Hephaestus",
-    title: "开发执行",
-    icon: Boxes,
-    color: "orange",
-    text: "按任务契约实施变更，提交可复核的产物与执行记录。",
-  },
-  {
-    name: "Momus",
-    title: "测试与质疑",
-    icon: MessageSquare,
-    color: "magenta",
-    text: "检查边界、失败路径与关键假设，对未解决的问题持续保留异议。",
-  },
-  {
-    name: "Argus",
-    title: "独立复核",
-    icon: ShieldCheck,
-    color: "cyan",
-    text: "依据验收证据独立检查产物，执行者不能自行批准结果。",
-  },
-  {
-    name: "Hermes",
-    title: "集成交付",
-    icon: GitBranch,
-    color: "green",
-    text: "组织产物交接与集成记录，让变更、验证与交付相互关联。",
-  },
-];
 const guideItems = [
   {
     key: "1",
-    label: "可以输入什么样的项目？",
+    label: "应该导入什么文件？",
     children:
-      "任何软件项目需求都可以。说明服务谁、解决什么问题、核心操作是什么，以及时间、平台等约束。无需套用固定业务案例。",
+      "正式交接采用上一阶段导出的 REQ JSON，包含需求条目、验收条件、范围外限制、来源、版本、内容指纹和确认记录。业务领域不限。当前支持单文件导入。",
   },
   {
     key: "2",
-    label: "创建草稿后会自动生成内容吗？",
+    label: "只有 Markdown、TXT 或 PDF 怎么办？",
     children:
-      "当前版本支持需求录入、编辑、导出和项目导航。模型生成服务接入后，才会产生讨论、需求规格、设计与任务；此刻的流程图只是待执行的流程预览。",
+      "Markdown / TXT 可以作为待整理材料预览，不会自动变成已确认需求。PDF / Word 的解析尚未接入，请先导出 UTF-8 的受支持格式；单文件最多 512 KB。",
   },
   {
     key: "3",
-    label: "谁来确认需求和执行结果？",
+    label: "导入成功后会立即执行吗？",
     children:
-      "Agent 提供分析、方案和独立复核，真人确认关键事实、价值取舍与最终结果。草稿与模型输出都不等于已确认需求。",
+      "不会。当前只保存本地导入记录并进行基础检查。来源、确认授权、依赖版本由后续服务端核验，正式接纳后才进入 Athena 设计、Daedalus 任务分解、审查与真人确认，再由 Zeus 编排。",
   },
   {
     key: "4",
-    label: "需求保存在哪里？",
-    children: `${draftStorageLabel}。当前不跨设备同步；可以导出 JSON 备份。`,
+    label: "已有设计规格 DS 可以直接执行吗？",
+    children:
+      "当前主入口接收需求规格 REQ。设计规格 DS 不能冒充 REQ；未来即使接入 DS 导入，也需要关联有效需求，完成计划检查与真人确认。",
+  },
+  {
+    key: "5",
+    label: "原文可以修改吗？",
+    children: `导入原文只读，补充说明另存。更换规格时建立新的导入记录，不覆盖旧文件。${storageLabel}；可导出原文件备份。`,
   },
 ];
 function getPage(): Page {
-  const value = window.location.hash.slice(1).split("/")[0];
+  const value = location.hash.slice(1).split("/")[0];
   return Object.hasOwn(pages, value) ? (value as Page) : "home";
 }
 const dateText = (value: string) =>
@@ -177,28 +111,30 @@ const dateText = (value: string) =>
 function FlowPreview({ captured = false }: { captured?: boolean }) {
   const stages = [
     {
-      icon: MessageSquare,
-      title: "需求输入",
-      subtitle: captured ? "已保存草稿" : "描述你的想法",
-      active: true,
+      icon: UploadCloud,
+      title: "需求导入",
+      subtitle: captured ? "本地记录 · 待核验" : "承接上一阶段 REQ",
     },
-    { icon: Bot, title: "多体讨论", subtitle: "澄清与方案评审" },
-    { icon: FileText, title: "需求规格", subtitle: "真人确认" },
-    { icon: Workflow, title: "设计与编排", subtitle: "任务与依赖" },
+    { icon: Layers3, title: "设计规格", subtitle: "Athena" },
+    {
+      icon: ClipboardList,
+      title: "任务分解",
+      subtitle: "Daedalus · 审查与确认",
+    },
+    { icon: Workflow, title: "编排执行", subtitle: "Zeus · 受控派发" },
+    { icon: ShieldCheck, title: "验收", subtitle: "独立复核 · 真人验收" },
   ];
   return (
-    <div className="flow-preview" aria-label="待执行的工作流程">
-      {stages.map(({ icon: Icon, title, subtitle, active }, index) => (
+    <div className="flow-preview" aria-label="需求导入后的工作流程">
+      {stages.map(({ icon: Icon, title, subtitle }, index) => (
         <div className="flow-stage-wrap" key={title}>
-          <div className={`flow-stage ${active ? "flow-active" : ""}`}>
-            <span className="flow-icon">
-              <Icon size={20} />
-            </span>
+          <div className={`flow-stage ${index === 0 ? "flow-active" : ""}`}>
+            <Icon size={20} />
             <strong>{title}</strong>
             <span>{subtitle}</span>
           </div>
           {index < stages.length - 1 && (
-            <ChevronRight className="flow-arrow" size={18} />
+            <ChevronRight className="flow-arrow" size={17} />
           )}
         </div>
       ))}
@@ -208,18 +144,22 @@ function FlowPreview({ captured = false }: { captured?: boolean }) {
 
 export function OlympusApp() {
   const { message } = App.useApp();
-  const [initial] = useState(loadDrafts);
-  const [drafts, setDrafts] = useState<ProjectDraft[]>(initial.drafts);
+  const [initial] = useState(loadImports);
+  const [imports, setImports] = useState(initial.imports);
   const [page, setPage] = useState<Page>(getPage);
   const [selectedId, setSelectedId] = useState<string>();
   const [mobileNav, setMobileNav] = useState(false);
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState("input");
-  const [editing, setEditing] = useState<ProjectDraft>();
+  const [tab, setTab] = useState("requirement");
   const [help, setHelp] = useState(false);
-  const [form] = Form.useForm<DraftInput>();
-  const [editForm] = Form.useForm<DraftInput>();
-  const current = drafts.find((draft) => draft.id === selectedId) ?? drafts[0];
+  const [pending, setPending] = useState<ImportedRequirement>();
+  const [pendingReport, setPendingReport] = useState<Inspection>();
+  const [currentReport, setCurrentReport] = useState<Inspection>();
+  const [busy, setBusy] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const requestId = useRef(0);
+  const current = imports.find((item) => item.id === selectedId) ?? imports[0];
+
   useEffect(() => {
     const change = () => setPage(getPage());
     window.addEventListener("hashchange", change);
@@ -229,136 +169,149 @@ export function OlympusApp() {
     document.title = `${pages[page]} · SWE-Olympus`;
     window.scrollTo(0, 0);
   }, [page]);
+  useEffect(() => {
+    let active = true;
+    setCurrentReport(undefined);
+    if (current)
+      void inspectRequirement(current)
+        .then((report) => {
+          if (active) setCurrentReport(report);
+        })
+        .catch(() => {
+          if (active)
+            setCurrentReport({
+              status: "invalid",
+              canSave: false,
+              checks: [
+                {
+                  title: "基础校验",
+                  state: "failed",
+                  detail: "校验服务异常，请重新导入。",
+                },
+              ],
+            });
+        });
+    return () => {
+      active = false;
+    };
+  }, [current]);
+
   function navigate(next: Page) {
     setPage(next);
-    window.location.hash = next;
+    location.hash = next;
     setMobileNav(false);
   }
-  function openProject(draft: ProjectDraft) {
-    setSelectedId(draft.id);
-    setTab("input");
+  function newImport() {
+    navigate("home");
+    window.setTimeout(
+      () =>
+        document
+          .getElementById("import-card")
+          ?.scrollIntoView({ block: "start" }),
+      0,
+    );
+  }
+  function openProject(item: ImportedRequirement) {
+    setSelectedId(item.id);
+    setTab("requirement");
     navigate("workstation");
   }
-  function persist(next: ProjectDraft[]): boolean {
+  function clearFile() {
+    requestId.current++;
+    setPending(undefined);
+    setPendingReport(undefined);
+    setFileError("");
+    setBusy(false);
+  }
+  async function selectFile(file: File) {
+    const id = ++requestId.current;
+    setBusy(true);
+    setFileError("");
+    setPending(undefined);
+    setPendingReport(undefined);
     try {
-      saveDrafts(next);
-      setDrafts(next);
-      return true;
+      const result = await readRequirementFile(file);
+      const report = await inspectRequirement(result);
+      if (requestId.current === id) {
+        setPending(result);
+        setPendingReport(report);
+      }
+    } catch (error) {
+      if (requestId.current === id)
+        setFileError(
+          error instanceof Error ? error.message : "文件读取失败，请重试。",
+        );
+    } finally {
+      if (requestId.current === id) setBusy(false);
+    }
+  }
+  function saveImport() {
+    if (!pending || !pendingReport?.canSave || busy) return;
+    const item = {
+      ...pending,
+      name: pending.name.trim() || pending.fileName.replace(/\.[^.]+$/, ""),
+    };
+    try {
+      const next = [item, ...imports];
+      saveImports(next);
+      setImports(next);
+      clearFile();
+      openProject(item);
+      void message.success("已保存本地导入记录，尚未进入正式流程");
     } catch (error) {
       void message.error(
-        error instanceof Error ? error.message : "保存失败，请导出备份后重试。",
+        error instanceof Error ? error.message : "本地保存失败，请保留原文件。",
       );
-      return false;
     }
   }
-  function submit(input: DraftInput) {
-    const draft = createDraft(input);
-    if (persist([draft, ...drafts])) {
-      form.resetFields();
-      openProject(draft);
-      void message.success("需求草稿已保存");
+  function legacyDownload() {
+    try {
+      const raw = exportLegacy();
+      if (raw) downloadText("olympus-legacy-prompt-drafts.json", raw);
+    } catch {
+      void message.error("旧版草稿无法读取，请检查浏览器存储。");
     }
   }
-  function newProject() {
-    navigate("home");
-    window.setTimeout(() => document.getElementById("new_prompt")?.focus(), 0);
-  }
-  function exportDraft(draft: ProjectDraft) {
-    const url = URL.createObjectURL(
-      new Blob(
-        [
-          JSON.stringify(
-            { type: "olympus_prompt_draft", schemaVersion: 1, draft },
-            null,
-            2,
-          ),
-        ],
-        { type: "application/json;charset=utf-8" },
-      ),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `olympus-draft-${draft.id}.json`;
-    a.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-  const draftFields = (
-    <>
-      <Form.Item
-        name="name"
-        label="项目名称"
-        extra="选填，留空时将使用需求首行命名。"
-        rules={[{ max: 80, message: "项目名称最多 80 字" }]}
-      >
-        <Input placeholder="为你的下一个项目起个名字" maxLength={80} />
-      </Form.Item>
-      <Form.Item
-        name="prompt"
-        label="需求描述"
-        rules={[
-          { required: true, whitespace: true, message: "请先描述你想做的软件" },
-          { max: 12000, message: "需求描述最多 12000 字" },
-        ]}
-      >
-        <Input.TextArea
-          placeholder={
-            "我想做一个……，主要面向……，帮助他们……。\n希望支持的核心操作是……，需要注意的限制是……。"
-          }
-          autoSize={{ minRows: 5, maxRows: 12 }}
-          maxLength={12000}
-          showCount
-        />
-      </Form.Item>
-      <Form.Item
-        name="constraints"
-        label="约束与补充"
-        rules={[{ max: 2000, message: "约束与补充最多 2000 字" }]}
-      >
-        <Input.TextArea
-          placeholder="选填，例如使用平台、交付时间、团队规模或技术偏好"
-          autoSize={{ minRows: 2, maxRows: 6 }}
-          maxLength={2000}
-        />
-      </Form.Item>
-    </>
-  );
   const columns = [
     {
-      title: "项目名称",
-      dataIndex: "name",
+      title: "项目 / 来源文件",
       key: "name",
-      render: (_: string, draft: ProjectDraft) => (
-        <button className="project-name" onClick={() => openProject(draft)}>
+      render: (_: unknown, item: ImportedRequirement) => (
+        <button className="project-name" onClick={() => openProject(item)}>
           <span className="project-glyph">
-            <FolderOpen size={19} />
+            <FileText size={19} />
           </span>
           <span>
-            <strong>{draft.name}</strong>
-            <small>{draft.prompt.replace(/\s+/g, " ").slice(0, 64)}</small>
+            <strong>{item.name}</strong>
+            <small>{item.fileName}</small>
           </span>
         </button>
       ),
     },
     {
-      title: "当前阶段",
-      key: "status",
-      width: 120,
-      render: () => <Tag color="blue">需求草稿</Tag>,
+      title: "导入类型",
+      key: "type",
+      width: 130,
+      render: (_: unknown, item: ImportedRequirement) => (
+        <Tag color={item.format === "json" ? "blue" : "default"}>
+          {item.format === "json" ? "REQ 待核验" : "待整理材料"}
+        </Tag>
+      ),
     },
     {
-      title: "最近更新",
-      key: "updated",
-      width: 145,
-      render: (_: unknown, draft: ProjectDraft) => (
-        <span className="muted">{dateText(draft.updatedAt)}</span>
+      title: "导入时间",
+      key: "time",
+      width: 140,
+      render: (_: unknown, item: ImportedRequirement) => (
+        <span className="muted">{dateText(item.importedAt)}</span>
       ),
     },
     {
       title: "操作",
-      key: "actions",
-      width: 85,
-      render: (_: unknown, draft: ProjectDraft) => (
-        <Button type="link" onClick={() => openProject(draft)}>
+      key: "action",
+      width: 90,
+      render: (_: unknown, item: ImportedRequirement) => (
+        <Button type="link" onClick={() => openProject(item)}>
           打开 <ArrowUpRight size={14} />
         </Button>
       ),
@@ -368,23 +321,23 @@ export function OlympusApp() {
     <Table
       rowKey="id"
       columns={columns}
-      dataSource={drafts
-        .filter((draft) =>
-          `${draft.name} ${draft.prompt}`
+      dataSource={imports
+        .filter((item) =>
+          `${item.name} ${item.fileName}`
             .toLowerCase()
             .includes(search.toLowerCase()),
         )
         .slice(0, limit)}
-      pagination={limit ? false : { pageSize: 6, hideOnSinglePage: true }}
       scroll={{ x: 600 }}
+      pagination={limit ? false : { pageSize: 6, hideOnSinglePage: true }}
       locale={{
         emptyText: (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
-              drafts.length
-                ? "没有匹配的项目"
-                : "还没有项目，从上方描述一个想法开始"
+              imports.length
+                ? "没有匹配的导入记录"
+                : "暂无导入记录，请选择一份需求规格文件"
             }
           />
         ),
@@ -481,48 +434,63 @@ export function OlympusApp() {
             <h1>{page === "home" ? "欢迎来到 Olympus" : pages[page]}</h1>
             <p>
               {page === "home"
-                ? "把想法交给协作流程，把关键决定留在你手中。"
+                ? "承接已确认的需求，让设计、任务与执行有据可循。"
                 : page === "projects"
-                  ? "所有项目，从一份清晰的需求开始。"
+                  ? "查看导入的需求规格与来源材料。"
                   : page === "workstation"
-                    ? "需求、产物与协作进展，在同一处查看。"
+                    ? "从需求交接开始，跟踪设计、编排与验收。"
                     : page === "agents"
                       ? "明确职责，独立复核，让协作有据可依。"
-                      : "开始之前，了解你的工作空间。"}
+                      : "了解输入文件与正式流程的边界。"}
             </p>
           </div>
-          <Button icon={<Plus size={16} />} onClick={newProject}>
-            新建项目
+          <Button icon={<Plus size={16} />} onClick={newImport}>
+            导入需求
           </Button>
         </div>
         {initial.error && (
-          <div role="alert" className="storage-alert">
-            {initial.error}
-          </div>
+          <Alert
+            className="import-alert"
+            type="warning"
+            showIcon
+            title={initial.error}
+          />
         )}
-
+        {initial.hasLegacy && (
+          <Alert
+            className="import-alert"
+            type="info"
+            showIcon
+            title="旧版 Prompt 草稿已保留，不会自动作为确认版规格导入。"
+            action={
+              <Button size="small" onClick={legacyDownload}>
+                导出旧版草稿
+              </Button>
+            }
+          />
+        )}
         {page === "home" && (
           <>
             <section className="welcome-banner">
               <div>
                 <span className="eyebrow">
-                  <Sparkles size={14} /> IDEA TO WORKFLOW
+                  <Sparkles size={14} /> REQUIREMENTS TO EXECUTION
                 </span>
-                <h2>从一个想法，到清晰的下一步。</h2>
+                <h2>从需求规格，到可追踪的执行。</h2>
                 <p>
-                  输入具体需求，开启属于你的软件项目。
+                  导入上一阶段产物，衔接设计、任务分解与编排。
                   <br />
-                  需求、方案与任务将在同一个工作空间中衔接。
+                  业务内容由文件决定，关键确认始终由人掌握。
                 </p>
                 <a href="#guide" onClick={() => navigate("guide")}>
-                  了解协作流程 <ArrowRight size={15} />
+                  了解文件交接 <ArrowRight size={15} />
                 </a>
               </div>
               <div className="banner-art" aria-hidden="true">
                 <div className="art-orbit" />
                 <div className="art-card art-input">
-                  <MessageSquare size={18} />
-                  <span>你的想法</span>
+                  <FileCheck2 size={18} />
+                  <span>需求规格 REQ</span>
                   <i />
                 </div>
                 <div className="art-core">
@@ -530,7 +498,7 @@ export function OlympusApp() {
                 </div>
                 <div className="art-card art-output">
                   <Workflow size={18} />
-                  <span>协作蓝图</span>
+                  <span>任务编排</span>
                   <Check size={14} />
                 </div>
                 <span className="art-dot dot-one" />
@@ -540,24 +508,24 @@ export function OlympusApp() {
             <section className="stat-grid" aria-label="项目概况">
               {[
                 {
-                  title: "项目草稿",
-                  value: drafts.length,
-                  detail: "已录入的想法",
+                  title: "导入记录",
+                  value: imports.length,
+                  detail: "本地保存，尚未正式接纳",
                   icon: FolderOpen,
                   tone: "blue",
                 },
                 {
-                  title: "生成产物",
+                  title: "设计与计划",
                   value: 0,
-                  detail: "等待生成服务接入",
+                  detail: "等待后续生成服务接入",
                   icon: FileText,
                   tone: "purple",
                 },
                 {
-                  title: "待确认事项",
+                  title: "执行任务",
                   value: 0,
-                  detail: "尚未发起评审",
-                  icon: ShieldCheck,
+                  detail: "编排尚未启动",
+                  icon: Workflow,
                   tone: "teal",
                 },
               ].map(({ title, value, detail, icon: Icon, tone }) => (
@@ -578,69 +546,176 @@ export function OlympusApp() {
             </section>
             <div className="home-grid">
               <Card
-                className="prompt-card"
+                id="import-card"
+                className="prompt-card import-card"
                 title={
                   <span className="card-title">
                     <span className="title-icon">
-                      <Pencil size={18} />
+                      <UploadCloud size={19} />
                     </span>
-                    创建你的项目
+                    导入需求规格
                   </span>
                 }
                 extra={
                   <Tag variant="filled" color="blue">
-                    开放式需求
+                    上一阶段产物
                   </Tag>
                 }
               >
                 <p className="card-intro">
-                  不必先有完整方案。告诉我们，你想为谁解决什么问题。
+                  选择上一阶段导出的 REQ JSON；文本材料将保持待整理状态。
                 </p>
-                <Form
-                  form={form}
-                  name="new"
-                  layout="vertical"
-                  onFinish={submit}
-                  requiredMark="optional"
+                <Upload.Dragger
+                  accept=".json,.md,.txt"
+                  multiple={false}
+                  maxCount={1}
+                  showUploadList={false}
+                  beforeUpload={(file) => {
+                    void selectFile(file);
+                    return false;
+                  }}
+                  aria-label="选择需求文件"
                 >
-                  {draftFields}
-                  <div className="form-footer">
-                    <span>
-                      <ShieldCheck size={14} />
-                      {draftStorageLabel}
-                    </span>
-                    <Button
-                      type="primary"
-                      htmlType="submit"
-                      icon={<ArrowRight size={16} />}
-                      iconPlacement="end"
-                    >
-                      创建需求草稿
-                    </Button>
+                  <div className="upload-symbol">
+                    <UploadCloud size={34} />
                   </div>
-                </Form>
+                  <strong>点击选择或拖拽文件到此处</strong>
+                  <p>JSON 需求规格 · Markdown / TXT 材料</p>
+                  <small>UTF-8 · 单文件 ≤ 512 KB · 仅在本地读取</small>
+                </Upload.Dragger>
+                {exampleUrl && (
+                  <Button
+                    className="sample-download"
+                    type="link"
+                    href={exampleUrl}
+                    download="requirement-example.json"
+                    icon={<Download size={14} />}
+                  >
+                    下载交接样例（构造）
+                  </Button>
+                )}
+                <p className="format-note">
+                  PDF / Word 解析尚未接入；设计规格 DS 导入留作后续扩展。
+                </p>
+                {busy && (
+                  <div className="import-loading">
+                    <Spin size="small" /> 正在读取与检查文件…
+                  </div>
+                )}
+                {fileError && (
+                  <Alert
+                    className="import-alert"
+                    type="error"
+                    showIcon
+                    title={fileError}
+                  />
+                )}
+                {pending && (
+                  <>
+                    <div className="selected-file">
+                      <FileText size={21} />
+                      <div>
+                        <strong>{pending.fileName}</strong>
+                        <span>
+                          {(pending.size / 1024).toFixed(1)} KB ·{" "}
+                          {pending.format.toUpperCase()}
+                        </span>
+                      </div>
+                      <Button
+                        type="text"
+                        aria-label="移除所选文件"
+                        icon={<X size={16} />}
+                        onClick={clearFile}
+                      />
+                    </div>
+                    <div className="import-fields">
+                      <label htmlFor="import-name">
+                        项目名称 <small>选填</small>
+                      </label>
+                      <Input
+                        id="import-name"
+                        value={pending.name}
+                        maxLength={80}
+                        onChange={(event) =>
+                          setPending({ ...pending, name: event.target.value })
+                        }
+                      />
+                      <label htmlFor="import-note">
+                        补充说明 <small>不改写规格正文或确认记录</small>
+                      </label>
+                      <Input.TextArea
+                        id="import-note"
+                        value={pending.note}
+                        maxLength={2000}
+                        autoSize={{ minRows: 2, maxRows: 5 }}
+                        placeholder="例如本次交接背景、需要优先关注的约束"
+                        onChange={(event) =>
+                          setPending({ ...pending, note: event.target.value })
+                        }
+                      />
+                    </div>
+                    {pendingReport && (
+                      <>
+                        <InspectionPanel report={pendingReport} />
+                        <Collapse
+                          className="import-preview"
+                          items={[
+                            {
+                              key: "preview",
+                              label: "查看文件内容与需求摘要",
+                              children: (
+                                <RequirementDetails
+                                  file={pending}
+                                  report={pendingReport}
+                                />
+                              ),
+                            },
+                          ]}
+                        />
+                      </>
+                    )}
+                  </>
+                )}
+                <div className="form-footer">
+                  <span>
+                    <ShieldCheck size={14} />
+                    {storageLabel}
+                  </span>
+                  <Button
+                    type="primary"
+                    disabled={
+                      !pendingReport?.canSave || busy || Boolean(initial.error)
+                    }
+                    onClick={saveImport}
+                    icon={<ArrowRight size={16} />}
+                    iconPlacement="end"
+                  >
+                    保存导入并查看
+                  </Button>
+                </div>
               </Card>
               <div className="right-rail">
-                <Card title="接下来会发生什么" className="journey-card">
+                <Card title="文件进入系统之后" className="journey-card">
                   <Steps
                     orientation="vertical"
                     current={0}
                     items={[
-                      { title: "描述需求", content: "说清目标、用户与约束" },
-                      { title: "多体讨论", content: "从不同视角澄清与评审" },
-                      { title: "确认规格", content: "由你决定范围与取舍" },
+                      { title: "需求导入", content: "预览、检查与服务端接纳" },
+                      { title: "设计规格", content: "Athena 生成设计" },
                       {
-                        title: "设计与任务编排",
-                        content: "形成可追踪的任务与依赖",
+                        title: "任务分解",
+                        content: "Daedalus 规划 · 审查与确认",
                       },
+                      { title: "编排执行", content: "Zeus 按规则派发" },
+                      { title: "验收", content: "独立复核与真人验收" },
                     ]}
                   />
                   <div className="service-note">
                     <Clock3 size={16} />
                     <p>
-                      当前可录入和管理需求草稿。
+                      当前为文件交接与预览。
                       <br />
-                      自动生成服务将在后续接入。
+                      正式接纳、生成和执行服务待接入。
                     </p>
                   </div>
                 </Card>
@@ -648,19 +723,19 @@ export function OlympusApp() {
                   <span className="tip-icon">
                     <CircleHelp size={20} />
                   </span>
-                  <h3>让需求更容易被理解</h3>
+                  <h3>上传不代表已经确认</h3>
                   <p>
-                    目标用户是谁？最重要的操作是什么？什么必须做，什么可以暂缓？
+                    规格需要携带版本、指纹和确认记录。文件中的声明仍需核实，材料不能直接进入执行。
                   </p>
                   <Button type="link" onClick={() => navigate("guide")}>
-                    查看输入指南 <ArrowRight size={14} />
+                    查看交接说明 <ArrowRight size={14} />
                   </Button>
                 </Card>
               </div>
             </div>
             <Card
               className="recent-card"
-              title="最近项目"
+              title="最近导入"
               extra={
                 <Button
                   type="link"
@@ -669,7 +744,7 @@ export function OlympusApp() {
                     navigate("projects");
                   }}
                 >
-                  全部项目 <ArrowRight size={14} />
+                  全部记录 <ArrowRight size={14} />
                 </Button>
               }
             >
@@ -677,46 +752,49 @@ export function OlympusApp() {
             </Card>
           </>
         )}
-
         {page === "projects" && (
           <Card
             className="project-list"
             title={
               <Space>
-                我的项目 <Tag>{drafts.length}</Tag>
+                导入记录 <Tag>{imports.length}</Tag>
               </Space>
             }
             extra={
               <Input
                 aria-label="搜索项目"
-                placeholder="搜索名称或需求"
+                placeholder="搜索项目或文件名"
                 prefix={<Search size={16} />}
                 allowClear
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(event) => setSearch(event.target.value)}
               />
             }
           >
             {projectTable()}
           </Card>
         )}
-
         {page === "workstation" &&
           (current ? (
             <>
               <Card className="project-summary">
                 <div className="project-summary-main">
                   <span className="large-project-icon">
-                    <FolderOpen size={26} />
+                    <FileCheck2 size={26} />
                   </span>
                   <div>
                     <div className="project-summary-title">
                       <h2>{current.name}</h2>
-                      <Tag color="blue">需求草稿</Tag>
+                      <Tag color="gold">
+                        {currentReport
+                          ? statusLabels[currentReport.status]
+                          : "检查中"}
+                      </Tag>
                     </div>
                     <p>
-                      草稿 v{current.revision} <span>·</span> 更新于{" "}
-                      {dateText(current.updatedAt)}
+                      {current.fileName}
+                      <span>·</span>
+                      {dateText(current.importedAt)}
                     </p>
                   </div>
                 </div>
@@ -725,11 +803,11 @@ export function OlympusApp() {
                   value={current.id}
                   onChange={(id) => {
                     setSelectedId(id);
-                    setTab("input");
+                    setTab("requirement");
                   }}
-                  options={drafts.map((draft) => ({
-                    value: draft.id,
-                    label: draft.name,
+                  options={imports.map((item) => ({
+                    value: item.id,
+                    label: item.name,
                   }))}
                 />
               </Card>
@@ -751,87 +829,99 @@ export function OlympusApp() {
                   onChange={setTab}
                   items={[
                     {
-                      key: "input",
-                      label: "原始需求",
+                      key: "requirement",
+                      label: "导入规格",
                       children: (
                         <>
                           <div className="section-toolbar">
                             <div>
-                              <h3>需求输入</h3>
-                              <p>保留原始描述，作为后续分析的起点。</p>
+                              <h3>需求交接内容</h3>
+                              <p>原文件只读，补充说明独立保存。</p>
                             </div>
                             <Space>
                               <Button
                                 icon={<Download size={15} />}
-                                onClick={() => exportDraft(current)}
+                                onClick={() =>
+                                  downloadText(
+                                    current.fileName,
+                                    current.sourceText,
+                                  )
+                                }
                               >
-                                导出
+                                导出原文件
                               </Button>
-                              <Button
-                                icon={<Pencil size={15} />}
-                                onClick={() => {
-                                  setEditing(current);
-                                  editForm.setFieldsValue(current);
-                                }}
-                              >
-                                编辑需求
-                              </Button>
+                              <Button onClick={newImport}>导入新版本</Button>
                             </Space>
                           </div>
-                          <div className="prompt-content">{current.prompt}</div>
-                          {current.constraints && (
-                            <div className="constraint-block">
-                              <h4>约束与补充</h4>
-                              <p>{current.constraints}</p>
-                            </div>
+                          {currentReport ? (
+                            <>
+                              <InspectionPanel report={currentReport} />
+                              <RequirementDetails
+                                file={current}
+                                report={currentReport}
+                              />
+                              <Collapse
+                                items={[
+                                  {
+                                    key: "raw",
+                                    label: "查看原始文件",
+                                    children: (
+                                      <pre className="raw-source">
+                                        {current.sourceText}
+                                      </pre>
+                                    ),
+                                  },
+                                ]}
+                              />
+                            </>
+                          ) : (
+                            <Spin />
                           )}
-                          <div className="draft-note">
-                            <ShieldCheck size={15} />
-                            此内容为需求草稿，尚未经过讨论或真人确认。
+                          <div className="next-stage">
+                            <span>下一步：服务端接纳后进入 Athena 设计。</span>
+                            <Button disabled>生成设计规格（待接入）</Button>
                           </div>
                         </>
                       ),
                     },
                     {
-                      key: "spec",
-                      label: "需求规格",
-                      children: (
-                        <EmptyPanel
-                          title="需求规格尚未生成"
-                          description="完成需求讨论和方案评价后，在这里查看规格草稿与确认记录。"
-                          icon="file"
-                        />
-                      ),
-                    },
-                    {
                       key: "design",
-                      label: "设计与编排",
+                      label: "设计规格",
                       children: (
                         <EmptyPanel
-                          title="还没有任务编排"
-                          description="待设计规格与规划服务接入后，在这里查看任务、依赖和执行状态。"
-                          icon="flow"
+                          title="设计规格尚未生成"
+                          description="需求经正式接纳后，由 Athena 生成带来源与验收方式的设计规格 DS。"
                         />
                       ),
                     },
                     {
-                      key: "activity",
-                      label: "活动记录",
+                      key: "plan",
+                      label: "任务分解",
                       children: (
-                        <div className="activity-item">
-                          <span className="activity-dot" />
-                          <div>
-                            <strong>
-                              {current.revision === 1
-                                ? "已创建需求草稿"
-                                : `需求草稿已更新至 v${current.revision}`}
-                            </strong>
-                            <p>{dateText(current.updatedAt)} · 项目成员</p>
-                            <span>
-                              此处仅记录当前草稿信息，尚无 Agent 运行事件。
-                            </span>
-                          </div>
-                        </div>
+                        <EmptyPanel
+                          title="任务计划尚未生成"
+                          description="Daedalus 根据设计形成任务与依赖，审查和真人确认通过后进入编排。"
+                        />
+                      ),
+                    },
+                    {
+                      key: "execution",
+                      label: "编排执行",
+                      children: (
+                        <EmptyPanel
+                          title="编排器尚未启动"
+                          description="这里将接入任务 DAG、Agent 执行记录、阻塞原因与受控操作。"
+                        />
+                      ),
+                    },
+                    {
+                      key: "acceptance",
+                      label: "验收",
+                      children: (
+                        <EmptyPanel
+                          title="暂无验收结果"
+                          description="仅依据程序检查、独立复核和真人验收展示结果。"
+                        />
                       ),
                     },
                   ]}
@@ -841,25 +931,23 @@ export function OlympusApp() {
           ) : (
             <Card>
               <EmptyPanel
-                title="选择一个项目，开始协作"
-                description="先创建需求草稿，再在工作台查看后续产物与进展。"
-                icon="flow"
+                title="导入一份规格，建立项目上下文"
+                description="请先选择上一阶段的需求文件，再查看设计、任务与编排的承接位置。"
               />
               <div className="empty-action">
-                <Button type="primary" onClick={newProject}>
-                  创建第一个项目
+                <Button type="primary" onClick={newImport}>
+                  导入第一份规格
                 </Button>
               </div>
             </Card>
           ))}
-
         {page === "agents" && (
           <>
             <div className="roles-intro">
               <ShieldCheck size={21} />
               <span>
-                角色职责预览：当前没有 Agent 在线运行。流程由 Harness
-                控制，关键决定由真人确认。
+                职责预览：上一阶段负责需求确认；Zeus 是确定性程序，YOU
+                是真人。下列 Agent 尚未接入运行。
               </span>
             </div>
             <div className="role-grid">
@@ -884,17 +972,17 @@ export function OlympusApp() {
         )}
         {page === "guide" && (
           <div className="guide-grid">
-            <Card title="从需求到协作">
+            <Card title="需求规格交接">
               <FlowPreview />
-              <Collapse defaultActiveKey={["1", "2"]} items={guideItems} />
+              <Collapse defaultActiveKey={["1", "3"]} items={guideItems} />
             </Card>
-            <Card title="一个清晰的输入">
+            <Card title="文件中需要保留">
               <div className="guide-points">
                 {[
-                  "目标 · 想解决什么问题",
-                  "用户 · 谁会使用它",
-                  "场景 · 最重要的核心操作",
-                  "约束 · 时间、平台与边界",
+                  "需求条目与验收条件",
+                  "范围与范围外限制",
+                  "来源、版本与内容指纹",
+                  "绑定当前版本的确认记录",
                 ].map((text, index) => (
                   <div key={text}>
                     <span>{index + 1}</span>
@@ -902,50 +990,17 @@ export function OlympusApp() {
                   </div>
                 ))}
               </div>
-              <Button type="primary" block onClick={newProject}>
-                开始描述需求 <ArrowRight size={15} />
+              <Button type="primary" block onClick={newImport}>
+                选择需求文件 <ArrowRight size={15} />
               </Button>
             </Card>
           </div>
         )}
         <footer className="page-footer">
           <span>SWE-Olympus · 让协作有迹可循</span>
-          <span>需求输入 → 多体讨论 → 规格确认 → 任务编排</span>
+          <span>需求导入 → 设计规格 → 任务分解 → 编排执行 → 验收</span>
         </footer>
       </main>
-      <Modal
-        title="编辑需求草稿"
-        open={Boolean(editing)}
-        onCancel={() => setEditing(undefined)}
-        onOk={() => editForm.submit()}
-        okText="保存修改"
-        cancelText="取消"
-        width={620}
-        forceRender
-      >
-        <Form
-          form={editForm}
-          name="edit"
-          layout="vertical"
-          requiredMark="optional"
-          onFinish={(input) => {
-            if (!editing) return;
-            const updated = createDraft(input, editing);
-            if (
-              persist(
-                drafts.map((draft) =>
-                  draft.id === updated.id ? updated : draft,
-                ),
-              )
-            ) {
-              setEditing(undefined);
-              void message.success("需求已更新，仍为未确认草稿");
-            }
-          }}
-        >
-          {draftFields}
-        </Form>
-      </Modal>
       <Modal
         title="关于这个工作空间"
         open={help}
@@ -957,21 +1012,26 @@ export function OlympusApp() {
         }
       >
         <p className="help-intro">
-          Olympus 将软件需求、方案与任务连接在一个可追溯的协作流程中。
+          承接上一阶段的确认版需求，衔接本阶段的设计、任务与可视化编排。
         </p>
         <Descriptions
           column={1}
           items={[
             {
-              key: "mode",
-              label: "当前能力",
-              children: "需求录入、草稿管理、导出与流程预览",
+              key: "input",
+              label: "当前入口",
+              children: "REQ JSON；Markdown / TXT 待整理材料",
             },
-            { key: "storage", label: "保存位置", children: draftStorageLabel },
+            { key: "storage", label: "保存位置", children: storageLabel },
             {
-              key: "generation",
-              label: "生成服务",
-              children: "尚未接入，暂无自动生成产物",
+              key: "scope",
+              label: "当前能力",
+              children: "本地文件读取、预览、基础检查与记录保存",
+            },
+            {
+              key: "next",
+              label: "后续接入",
+              children: "服务端确认核验、设计生成、任务分解与编排执行",
             },
           ]}
         />
@@ -979,20 +1039,17 @@ export function OlympusApp() {
     </div>
   );
 }
-
 function EmptyPanel({
   title,
   description,
-  icon,
 }: {
   title: string;
   description: string;
-  icon: "file" | "flow";
 }) {
   return (
     <div className="empty-panel">
       <span>
-        {icon === "file" ? <ClipboardList size={32} /> : <Workflow size={32} />}
+        <Workflow size={32} />
       </span>
       <h3>{title}</h3>
       <p>{description}</p>

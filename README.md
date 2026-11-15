@@ -23,7 +23,7 @@ python scripts/project.py frontend
 ```
 
 页面：http://127.0.0.1:5173；health：http://127.0.0.1:8000/health。
-前端参考 Ant Design Pro，采用 Ant Design 6 的浅色控制台：欢迎总览、开放式需求表单、项目列表、工作台、角色说明与使用指南。支持任意业务 Prompt 的创建、编辑、搜索和 JSON 导出；本 PR 草稿只保留在页面会话，刷新后清除。Issue #2 接入浏览器本地持久化。生成服务尚未接入，页面不展示虚构任务或默认校园项目。
+前端沿用 Ant Design Pro 风格，入口改为上一阶段规格文件交接：JSON 语法预览、Markdown/TXT 材料预览、只读原文和五阶段流程占位。本 PR 只提供界面骨架，数据模块在 Issue #2 接入；正式 REQ 接纳、生成和执行仍由后续成员实现。页面会话刷新后清除，不提供新一轮 Prompt 需求讨论。
 
 `python scripts/project.py check`执行Ruff、后端全部测试和TypeScript/Vite构建。
 `python scripts/project.py scenario`执行无界面场景。
