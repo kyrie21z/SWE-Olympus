@@ -230,6 +230,15 @@ def test_requests_are_registered_before_the_provider_is_invoked():
     assert len(ledger) == 3
 
 
+def test_budget_exhaustion_stops_before_the_next_request():
+    ledger = RequestLedger()
+    runner = AgentRunner(MockProvider(), ledger=ledger)
+    with pytest.raises(RunnerPermissionError):
+        runner.run(role_request(fixture_key="multi_step", budget_calls=1))
+    assert len(ledger) == 1
+    assert ledger.entries()[0].status == "succeeded"
+
+
 def test_outcome_unknown_retains_budget_and_blocks_blind_resend():
     ledger = RequestLedger()
     runner = AgentRunner(MockProvider(), ledger=ledger)
@@ -333,6 +342,19 @@ def test_cancel_unknown_is_not_clean_termination():
     assert stored.cancel_requested is True
     assert stored.budget_held is True
     assert stored.calls_consumed == 1
+
+
+def test_cancel_without_provider_confirmation_keeps_unknown_outcome():
+    ledger = RequestLedger()
+    entry = prepare(ledger)
+    ledger.mark_sent(entry.request_id)
+    ledger.record_outcome(entry.request_id, "outcome_unknown", error_code="timeout")
+    result = ledger.cancel(entry.request_id)
+    assert result.cancelled is False
+    assert result.status == "outcome_unknown"
+    assert result.needs_reconciliation is True
+    assert result.reason == "provider_unknown"
+    assert ledger.entries()[0].cancel_requested is True
 
 
 def test_cancel_confirmed_and_already_terminal():
