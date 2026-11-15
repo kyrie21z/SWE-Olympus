@@ -26,6 +26,7 @@ test("arbitrary prompts create separate editable drafts without invented output"
   await page.getByRole("button", { name: "创建需求草稿" }).click();
   await expect(page.locator(".prompt-content")).toHaveText(prompt);
   await expect(page.getByText("尚未执行", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   await page.screenshot({
     path: info.outputPath("workstation.png"),
     fullPage: true,

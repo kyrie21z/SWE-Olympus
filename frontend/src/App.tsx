@@ -227,6 +227,7 @@ export function OlympusApp() {
   }, []);
   useEffect(() => {
     document.title = `${pages[page]} · SWE-Olympus`;
+    window.scrollTo(0, 0);
   }, [page]);
   function navigate(next: Page) {
     setPage(next);
