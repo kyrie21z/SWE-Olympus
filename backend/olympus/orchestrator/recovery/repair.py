@@ -150,6 +150,7 @@ def plan_repair(
     runtime.plan = new_plan
     runtime.scheduler.plan = new_plan
     runtime.scheduler.manifest = new_manifest
+    runtime.refresh_trace(new_plan)
     runtime.repairs.append(
         {
             "repair_task_id": repair_id,

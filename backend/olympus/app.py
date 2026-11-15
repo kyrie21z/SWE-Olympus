@@ -13,11 +13,12 @@ from olympus.commands.runtime import CommandService
 from olympus.storage.sqlite import Store
 
 
-def create_app(*, store: Store | None = None) -> FastAPI:
+def create_app(*, store: Store | None = None, execution_view=None) -> FastAPI:
     app = FastAPI(title="SWE-Olympus", version="0.2.0")
+    app.state.execution_view = execution_view
 
     if store is not None:
-        runs = RunQueryService(store)
+        runs = RunQueryService(store, execution_view=execution_view)
         app.state.store = store
         app.state.runs = runs
         app.state.commands = CommandService(runs.registry)

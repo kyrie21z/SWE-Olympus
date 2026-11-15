@@ -16,9 +16,19 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from olympus.api.errors import CursorAhead, InvalidCursor, RecoveryBlocked, RunNotFound
+from olympus.api.errors import (
+    CursorAhead,
+    ExecutionNotFound,
+    ExecutionViewUnavailable,
+    InvalidCursor,
+    RecoveryBlocked,
+    RunNotFound,
+    TraceUnavailable,
+)
+from olympus.commands.runtime.errors import PlanNotBound
 from olympus.contracts.models import Event, Run
 from olympus.orchestrator.recovery import RecoveryGap, RuntimeRegistry
+from olympus.projections.http import ExecutionView, build_run_view, build_trace_view
 from olympus.storage.sqlite import Store
 
 
@@ -27,17 +37,29 @@ def default_db_path() -> Path:
     return Path(os.environ.get("OLYMPUS_DB", ".olympus/state.sqlite3"))
 
 
-def build_service(store: Store | None = None) -> RunQueryService:
+def build_service(
+    store: Store | None = None,
+    execution_view: ExecutionView | None = None,
+) -> RunQueryService:
     """构造服务；延迟到第一次请求时才打开数据库，避免导入即产生文件。"""
-    return RunQueryService(store if store is not None else Store(default_db_path()))
+    return RunQueryService(
+        store if store is not None else Store(default_db_path()),
+        execution_view=execution_view,
+    )
 
 
 class RunQueryService:
     """只读门面：快照来自可恢复的运行态，事件来自不可变日志。"""
 
-    def __init__(self, store: Store, registry: RuntimeRegistry | None = None) -> None:
+    def __init__(
+        self,
+        store: Store,
+        registry: RuntimeRegistry | None = None,
+        execution_view: ExecutionView | None = None,
+    ) -> None:
         self._store = store
         self._registry = registry if registry is not None else RuntimeRegistry(store)
+        self._execution_view = execution_view
 
     @property
     def store(self) -> Store:
@@ -61,7 +83,44 @@ class RunQueryService:
             "run_id": run_id,
             "assignments": handlers.assignments(run_id) if handlers else {},
             "entries": handlers.trail(run_id) if handlers else [],
+            "repairs": list(runtime.repairs),
         }
+
+    def view(self, run_id: str) -> dict:
+        """前端一次取齐：快照 + P3 摘要 + allowed_actions + 追踪。"""
+        runtime = self._runtime(run_id)
+        if runtime.scheduler is None or runtime.bus is None:
+            raise PlanNotBound(
+                "运行尚未绑定已批准的计划，无法提供运行摘要",
+                detail={"run_id": run_id},
+            )
+        return build_run_view(runtime)
+
+    def trace(self, run_id: str) -> dict:
+        runtime = self._runtime(run_id)
+        trace = build_trace_view(runtime)
+        if trace is None:
+            raise TraceUnavailable(
+                "缺少需求或设计原文，无法构建追踪索引",
+                detail={"run_id": run_id},
+            )
+        return trace
+
+    def executions(self, run_id: str, task_id: str, attempt_id: str | None = None) -> dict:
+        # 先确认运行存在，避免把"运行不存在"误报成"执行记录不存在"。
+        self._runtime(run_id)
+        if self._execution_view is None:
+            raise ExecutionViewUnavailable(
+                "宿主未注入执行查询服务，无法提供工件与执行详情",
+                detail={"run_id": run_id},
+            )
+        try:
+            return self._execution_view.project(task_id, attempt_id)
+        except (KeyError, ValueError) as exc:
+            raise ExecutionNotFound(
+                f"任务 {task_id} 没有可查询的执行记录",
+                detail={"run_id": run_id, "task_id": task_id, "attempt_id": attempt_id},
+            ) from exc
 
     def _runtime(self, run_id: str):
         try:

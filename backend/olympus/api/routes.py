@@ -24,7 +24,7 @@ def get_runs(request: Request) -> RunQueryService:
     """从应用状态取服务实例；测试可以注入临时数据库，不依赖全局单例。"""
     runs = getattr(request.app.state, "runs", None)
     if runs is None:
-        runs = build_service()
+        runs = build_service(execution_view=getattr(request.app.state, "execution_view", None))
         request.app.state.runs = runs
         request.app.state.store = runs.store
     return runs
@@ -56,6 +56,27 @@ def read_events(
 @router.get("/runs/{run_id}/trail")
 def read_trail(run_id: str, runs: RunQueryService = Depends(get_runs)) -> dict:
     return runs.trail(run_id)
+
+
+@router.get("/runs/{run_id}/view")
+def read_view(run_id: str, runs: RunQueryService = Depends(get_runs)) -> dict:
+    """前端一次取齐：快照、运行摘要、allowed_actions、追踪矩阵。"""
+    return runs.view(run_id)
+
+
+@router.get("/runs/{run_id}/trace")
+def read_trace(run_id: str, runs: RunQueryService = Depends(get_runs)) -> dict:
+    return runs.trace(run_id)
+
+
+@router.get("/runs/{run_id}/executions/{task_id}")
+def read_execution(
+    run_id: str,
+    task_id: str,
+    attempt_id: str | None = Query(None),
+    runs: RunQueryService = Depends(get_runs),
+) -> dict:
+    return runs.executions(run_id, task_id, attempt_id)
 
 
 @router.post("/commands", response_model=Receipt)

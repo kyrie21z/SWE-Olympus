@@ -1,0 +1,108 @@
+{
+  "status": 200,
+  "headers": {},
+  "body": {
+    "schema_version": "1.0",
+    "run_id": "RUN-campus",
+    "mode": "mock",
+    "approved_package": [
+      {
+        "schema_version": "1.0",
+        "object_id": "I001",
+        "version": 2,
+        "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+      },
+      {
+        "schema_version": "1.0",
+        "object_id": "DS-I001",
+        "version": 1,
+        "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+      },
+      {
+        "schema_version": "1.0",
+        "object_id": "PLAN-I001",
+        "version": 1,
+        "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b"
+      }
+    ],
+    "state_revision": 1,
+    "event_seq": 1,
+    "status": "paused",
+    "call_budget": 40,
+    "calls_used": 0,
+    "tasks": [
+      {
+        "schema_version": "1.0",
+        "task_id": "T01",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T02",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T03",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T04",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T05",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T06",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T07",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T08",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      }
+    ]
+  }
+}

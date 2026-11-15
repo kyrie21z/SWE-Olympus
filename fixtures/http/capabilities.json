@@ -1,0 +1,18 @@
+{
+  "status": 200,
+  "headers": {},
+  "body": {
+    "schema_version": "1.0",
+    "durability": "memory",
+    "command_journal": "null",
+    "recovery": {
+      "mode": "single-process",
+      "strategy": "events+snapshot"
+    },
+    "notes": [
+      "命令只作用于进程内运行态；重启后回退到最近一次已提交快照",
+      "多事件持久化待存储层提供批量写入接口后接入 StoreJournal",
+      "恢复要求事件链与快照逐条对得上，否则返回 RECOVERY_GAP"
+    ]
+  }
+}

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from olympus.commands.core.bus import CommandBus
 from olympus.commands.runtime_handlers import RuntimeCommandHandlers
-from olympus.contracts.models import Plan
+from olympus.contracts.models import Design, Plan, Requirement
 from olympus.orchestrator.scheduler import (
     DEFAULT_EXECUTOR_CAPACITY,
     DEFAULT_MAX_PARALLEL,
@@ -25,6 +25,10 @@ from olympus.orchestrator.scheduler import (
 from olympus.orchestrator.state_machine import RunContext
 from olympus.planning import CompiledManifest
 from olympus.storage.sqlite import Store
+from olympus.traceability.planning.indexer import (
+    PlanningTraceabilityIndex,
+    build_planning_traceability,
+)
 
 from .rebuild import rebuild_context
 
@@ -40,6 +44,9 @@ class RunRuntime:
     bus: CommandBus | None = None
     handlers: RuntimeCommandHandlers | None = None
     repairs: list[dict] = field(default_factory=list)
+    requirement: Requirement | None = None
+    design: Design | None = None
+    trace: PlanningTraceabilityIndex | None = None
 
     @property
     def has_plan(self) -> bool:
@@ -50,6 +57,8 @@ class RunRuntime:
         plan: Plan,
         manifest: CompiledManifest,
         *,
+        requirement: Requirement | None = None,
+        design: Design | None = None,
         max_parallel: int = DEFAULT_MAX_PARALLEL,
         executor_capacity: int = DEFAULT_EXECUTOR_CAPACITY,
     ) -> RunRuntime:
@@ -72,7 +81,22 @@ class RunRuntime:
         # 四个运行期人工动作在这一刻从 NOT_READY 变成真实处理器（issue #9）。
         self.handlers = RuntimeCommandHandlers()
         self.handlers.register(self.bus)
+
+        # 需求与设计同时提供时才有追踪索引；缺任一份就保持 None，
+        # API 会明确返回"追踪不可用"，而不是拼一份假的。
+        if requirement is not None and design is not None:
+            self.requirement = requirement
+            self.design = design
+            self.trace = build_planning_traceability(requirement, design, plan)
         return self
+
+    def refresh_trace(self, plan: Plan) -> PlanningTraceabilityIndex | None:
+        """计划改版（例如新增修复任务）后重建追踪索引。"""
+        if self.requirement is None or self.design is None:
+            self.trace = None
+            return None
+        self.trace = build_planning_traceability(self.requirement, self.design, plan)
+        return self.trace
 
 
 class RuntimeRegistry:

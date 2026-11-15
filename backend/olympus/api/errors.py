@@ -58,6 +58,27 @@ class RecoveryBlocked(ApiError):
     code = "RECOVERY_GAP"
 
 
+class TraceUnavailable(ApiError):
+    """没有需求/设计原文，无法构建规划追踪索引。"""
+
+    status_code = 409
+    code = "TRACE_UNAVAILABLE"
+
+
+class ExecutionViewUnavailable(ApiError):
+    """宿主未注入执行查询服务，无法提供工件与执行详情。"""
+
+    status_code = 409
+    code = "EXECUTION_VIEW_UNAVAILABLE"
+
+
+class ExecutionNotFound(ApiError):
+    """指定的任务或尝试没有可查询的执行记录。"""
+
+    status_code = 404
+    code = "EXECUTION_NOT_FOUND"
+
+
 def _envelope(code: str, message: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"error": {"code": code, "message": message, "detail": detail or {}}}
 

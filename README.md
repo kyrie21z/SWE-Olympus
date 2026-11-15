@@ -182,6 +182,7 @@ backend/olympus/
   reviews/common/         # 独立报告和问题关闭权限
   requests/               # 发送账本及query/cancel
   api/                    # P5 只读接口、命令接口与统一错误信封
+  projections/http/       # P5 视图组装（P2追踪 + P3摘要 + P4执行）
   orchestrator/recovery/  # P5 运行态重建、修复、中断核对与重试策略
   commands/runtime_handlers/ # P5 四个运行期人工命令处理器
   planning/               # 任务卡、校验、打包与静态编译
@@ -193,7 +194,7 @@ frontend/
   src/App.tsx             # 控制台，供P6扩展
   tests/data/             # 前端数据检查
   tests/e2e/              # 文件交接、恢复和手机布局
-fixtures/                 # 公共对象、规划和模型响应的构造夹具
+fixtures/                 # 公共对象、规划、模型响应与HTTP录制样例
 scripts/                  # 统一命令、契约/规划夹具生成
 tests/                    # 单元、契约、存储、Runner、规划与场景
 docs/                     # 契约、交接、参考和截图
