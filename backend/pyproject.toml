@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swe-olympus"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["pydantic==2.12.5", "fastapi==0.121.2", "uvicorn==0.38.0", "langgraph==1.0.3"]
+
+[tool.setuptools.packages.find]
+include = ["olympus*"]
