@@ -126,6 +126,7 @@ X-Olympus-Recorded-Events: 0        # 实际持久化的事件条数
 | `supersedes` / `failure_ref` 存在 P5 运行态 | 契约 `Task` 没有对应字段，未擅自扩展 | 契约演进时迁入 |
 | 修复失效事件由 P5 以 `program` 记录 | 未复用 `invalidate_revision`，因为后者把 `actor_type` 固定为 `human` |  P3 可考虑增加 actor_type 参数 |
 | `CommandBus._persist` 未使用 | 该方法未被任何测试覆盖，且与 `Store.commit` 的计数器契约不一致；本段未走该路径 | P3 后续修复 |
+| LangGraph 关口状态仍用 `InMemorySaver` | 同进程重放可用；跨进程需持久化 saver。当前 HTTP 层走 `CommandBus`，未经过该图，因此不影响本段链路 | 若后续把关口接入 API，单独立项并补依赖 |
 | 归因是启发式 | 不能代替在线 Momus 语义复核 | 接入模型后补充 |
 | 未接真实执行器 | 修复/重试场景使用构造运行态与脚本化结果 | P4 适配器已提供接口 |
 
