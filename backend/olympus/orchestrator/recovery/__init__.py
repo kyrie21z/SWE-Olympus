@@ -5,12 +5,15 @@
 """
 
 from .errors import RecoveryError, RecoveryGap
+from .policy import BoundedRetryPolicy, RetryDecision
 from .rebuild import rebuild_context, verify_chain
 from .registry import RunRuntime, RuntimeRegistry
 
 __all__ = [
+    "BoundedRetryPolicy",
     "RecoveryError",
     "RecoveryGap",
+    "RetryDecision",
     "RunRuntime",
     "RuntimeRegistry",
     "rebuild_context",
