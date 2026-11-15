@@ -69,7 +69,7 @@ def evidence() -> str:
 
 
 def pr_body() -> str:
-    return f"""Closes #5
+    return """Closes #5
 Closes #6
 
 ## 这个 PR 做了什么
@@ -85,8 +85,8 @@ Closes #6
 ## 文件（按 issue 指定路径）
 
 ```
-backend/olympus/orchestrator/scheduler/{{scheduler,executor,incidents}}.py
-backend/olympus/orchestrator/state_machine/{{run_context,transitions,revision}}.py
+backend/olympus/orchestrator/scheduler/{scheduler,executor,incidents}.py
+backend/olympus/orchestrator/state_machine/{run_context,transitions,revision}.py
 backend/olympus/projections/runtime/projection.py
 backend/olympus/workflow/gates.py
 backend/olympus/human/store.py
@@ -182,7 +182,7 @@ def main() -> int:
         print(f"② 在 #{number} 贴验收评论")
         api("POST", f"/repos/{OWNER}/{REPO}/issues/{number}/comments",
             {"body": issue_comment(number, section)})
-        print(f"   已贴")
+        print("   已贴")
 
     print(f"\n完成：{pr['html_url']}")
     return 0
