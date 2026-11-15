@@ -10,4 +10,3 @@ dependencies = ["pydantic==2.12.5", "fastapi==0.121.2", "uvicorn==0.38.0", "lang
 
 [tool.setuptools.packages.find]
 include = ["olympus*"]
-

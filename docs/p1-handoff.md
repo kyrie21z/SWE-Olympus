@@ -46,4 +46,3 @@ CI使用Playwright安装的Chromium。Python依赖有两条上游弃用提示（
 - 文档content中的业务结构是课程原型粒度；复杂接口参数/实体定义可在P2/P4扩展并提升schema版本。
 
 主PR关联两条Issue，由P2独立评审。代码缺陷由对应作者修复，不将后端验收留给P6。
-

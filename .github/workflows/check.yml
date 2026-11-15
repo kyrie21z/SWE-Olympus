@@ -30,4 +30,3 @@ jobs:
         with:
           name: browser-failure-evidence
           path: frontend/test-results/
-

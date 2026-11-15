@@ -11,4 +11,3 @@
 上述内容用于设计参考，没有复制课程文件、图片或外部源码入仓库。
 
 实现时核对的官方资料：[LangGraph概览](https://docs.langchain.com/oss/python/langgraph/overview)、[Pydantic JSON Schema](https://docs.pydantic.dev/latest/concepts/json_schema/)、[Vite入门](https://vite.dev/guide/)。项目锁定具体版本，未以“最新版本”作兼容承诺。
-
