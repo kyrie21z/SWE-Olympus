@@ -1,0 +1,12 @@
+{
+  "steps": [
+    {
+      "kind": "model",
+      "output": {
+        "summary": 42,
+        "findings": "not-a-list"
+      },
+      "usage": {"prompt_tokens": 5, "completion_tokens": 1, "elapsed_ms": 2}
+    }
+  ]
+}
