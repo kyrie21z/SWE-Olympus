@@ -2,7 +2,7 @@
 
 面向软件工程课程的多 Agent 工作流原型，由 **6 人、8 周**协作完成。项目承接上一阶段的需求规格文件，将业务需求逐步转成设计规格、开发任务、可视化编排与验收记录。业务内容由输入决定，校园报名仅是构造测试案例。
 
-> **当前进度（2026-11-15，本地 P4 分支）：** P1/P2/P3 已合入主分支。P4 已增加正式 REQ 接纳、Athena/Momus 设计生成与检查、受控本地 Python 执行和独立工件验收；当前验证使用模拟模型与真实工具，尚未推送、未跑远端自动检查。完整验证范围和本机依赖限制见 [P4 交接](docs/p4-handoff.md)与[本地检查记录](docs/p4-local-validation.md)。HTTP、恢复和正式前端接线仍由 P5/P6 完成。
+> **当前进度（2026-11-15）：** P1/P2/P3/P4 已合入主分支（PR #14/#15/#17/#19/#20）。P5 的有界恢复、四处中断核对、四个运行期命令与薄 HTTP API 位于 `feat/p5-recovery-api`（PR #21，Draft）。命令事件暂未落库，响应头 `X-Olympus-Durability: memory` 如实标注；完整前端联调由 P6 完成。验证范围见 [P5 交接](docs/p5-handoff.md)。
 
 ## 导航
 
@@ -39,8 +39,9 @@ flowchart TD
 | 正式REQ接纳、Athena设计与Momus独立检查 | P4服务已实现；真实确认记录由受信上游提供，样例保持构造标识 |
 | 动态调度、资源许可和人工关口 | P3已有；P4复用并补充设计/工件接线 |
 | 受控Python执行、实际检查证据、Argus工件复核 | P4已有本地验证；不是生产沙箱，未评测真实在线模型 |
-| 跨进程恢复、HTTP与正式页面接线 | 待P5/P6接入 |
-| 页面调用后端规划、正式DAG/泳道/命令交互 | 待P5/P6接入 |
+| 跨进程恢复、HTTP接口与事件补取 | P5已实现恢复核对、只读接口与事件补取；命令事件暂未落库 |
+| 四个运行期人工命令（重试/改派/风险接受/变更） | P5已接管；未注册状态由 NOT_READY 变为真实处理器 |
+| 页面调用后端规划、正式DAG/泳道/命令交互 | 后端接口已有（P5），前端待P6接入 |
 
 P2主要提供Python服务与无界面场景，当前网页仍是文件交接工作台。页面上的“生成设计规格”保持禁用，不能从是否有按钮判断后台模块是否存在。模型自评、退出码为零和UI颜色均不单独构成验收。
 
@@ -180,6 +181,9 @@ backend/olympus/
   human/                  # P3 人工请求与等待恢复
   reviews/common/         # 独立报告和问题关闭权限
   requests/               # 发送账本及query/cancel
+  api/                    # P5 只读接口、命令接口与统一错误信封
+  orchestrator/recovery/  # P5 运行态重建、修复、中断核对与重试策略
+  commands/runtime_handlers/ # P5 四个运行期人工命令处理器
   planning/               # 任务卡、校验、打包与静态编译
   traceability/planning/  # REQ→DS→Task追踪索引
 frontend/
@@ -203,7 +207,7 @@ docs/                     # 契约、交接、参考和截图
 - `RequestLedger.cancel` 只有未发送或已获得提供方确认的请求才可确定取消；在途无确认保持outcome_unknown、预留预算和待核对标记。
 - 正式状态只能由受信服务提交，MockClient命令仍返回NOT_READY；风险接受不等于验证通过，路径工具不等于完整执行隔离。
 
-规划契约见[P2交接说明](docs/p2-handoff.md)，设计、执行及验收接线见[P4交接说明](docs/p4-handoff.md)。运行中的请求结果未知时不能盲目重发；真实请求查询/取消证据由对应提供方适配器提供。
+规划契约见[P2交接说明](docs/p2-handoff.md)，设计、执行及验收接线见[P4交接说明](docs/p4-handoff.md)，恢复、命令与HTTP接口见[P5交接说明](docs/p5-handoff.md)。运行中的请求结果未知时不能盲目重发；真实请求查询/取消证据由对应提供方适配器提供。
 
 <a id="checks"></a>
 
@@ -264,7 +268,7 @@ P4 新增的设计、真实执行和异常场景验证范围见[本地检查记�
 | 问题 | 处理 |
 | --- | --- |
 | 为什么没有样例按钮或刷新后记录消失？ | 核对是否从最新main安装启动，端口是否仍被旧目录的Vite占用；不要清除未备份的浏览器数据。 |
-| 为什么不能点击生成设计？ | 当前页面尚未接入正式接纳与生成服务，需P4/P5/P6接线。 |
+| 为什么不能点击生成设计？ | 后端能力已由 P4/P5 提供，页面接线由 P6 完成。 |
 | 只有一段Prompt怎么办？ | 先在上游整理确认，也可作为MD/TXT预览；不会自动获得确认效力。 |
 | 为什么改了JSON后失败？ | 正文指纹或确认目标可能失配，应从上游导出新版本。 |
 | 没配模型能规划任意项目吗？ | 内置mock仅绑定课程夹具。其他业务需要provider或显式测试响应，不能静默套模板。 |
@@ -277,6 +281,6 @@ P4 新增的设计、真实执行和异常场景验证范围见[本地检查记�
 
 ## 9. 文档
 
-[文件交接](docs/input-handoff.md) · [公共契约](docs/contracts/README.md) · [P1交接](docs/p1-handoff.md) · [P2交接](docs/p2-handoff.md) · [P3交接](docs/p3-handoff.md) · [P4交接](docs/p4-handoff.md) · [参考说明](docs/reference-notes.md) · [规划夹具](fixtures/plans/) · [Issue](https://github.com/kyrie21z/SWE-Olympus/issues) · [PR](https://github.com/kyrie21z/SWE-Olympus/pulls)
+[文件交接](docs/input-handoff.md) · [公共契约](docs/contracts/README.md) · [P1交接](docs/p1-handoff.md) · [P2交接](docs/p2-handoff.md) · [P3交接](docs/p3-handoff.md) · [P4交接](docs/p4-handoff.md) · [P5交接](docs/p5-handoff.md) · [参考说明](docs/reference-notes.md) · [规划夹具](fixtures/plans/) · [Issue](https://github.com/kyrie21z/SWE-Olympus/issues) · [PR](https://github.com/kyrie21z/SWE-Olympus/pulls)
 
 后续成员接棒时同步更新能力表、启动步骤、检查证据与文档入口；区分程序已实现、构造走查通过和真实模型已验证。
