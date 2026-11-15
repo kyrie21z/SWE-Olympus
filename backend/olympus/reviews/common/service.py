@@ -43,7 +43,7 @@ class ReviewFinding(Contract):
     target: Ref
     category: Id
     severity: Severity
-    message: Id
+    message: str = Field(min_length=1)
     raised_by: Id
     status: FindingStatus = "open"
     closed_by: str | None = None

@@ -1,5 +1,5 @@
 import { defineConfig } from "@playwright/test";
-const port = Number(process.env.OLYMPUS_TEST_PORT || 5173);
+const port = Number(process.env.OLYMPUS_TEST_PORT || 5175);
 export default defineConfig({
   testDir: "./tests/e2e",
   use: {

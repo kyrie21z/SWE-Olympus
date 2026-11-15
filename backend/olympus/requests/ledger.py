@@ -305,9 +305,13 @@ class RequestLedger:
                 needs_reconciliation=entry.needs_reconciliation,
                 reason="already_terminal",
             )
-        if provider_cancel_hook is None and entry.status == "outcome_unknown":
+        if provider_cancel_hook is None and entry.status in ("sent", "outcome_unknown"):
             # No provider confirmation: never claim a clean cancellation.
             entry.cancel_requested = True
+            entry.status = "outcome_unknown"
+            entry.calls_consumed = 1
+            entry.budget_held = True
+            entry.needs_reconciliation = True
             self._store(entry)
             return CancelResult(
                 request_id=entry.request_id,

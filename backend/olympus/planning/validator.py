@@ -34,11 +34,10 @@ IssueCode = Literal[
     "MISSING_INPUT_SUPPLY",
     "INVALID_WRITE_SCOPE",
     "SELF_REVIEW",
+    "STALE_INPUT_REFERENCE",
 ]
 
 IMPLEMENTATION_TYPES = ("interface", "implement")
-WAITLIST_SERVICE_TASK = "T03"
-WAITLIST_STATE_REQUIREMENT = "FR-005"
 
 _TERM_SPLIT = re.compile(r"[/、,，;；\s]+")
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
@@ -90,12 +89,7 @@ def dependency_graph(plan: Plan) -> dict[str, list[str]]:
 
 def unknown_dependencies(plan: Plan) -> list[tuple[str, str]]:
     known = {task.task_id for task in plan.tasks}
-    return [
-        (task.task_id, dep)
-        for task in plan.tasks
-        for dep in task.depends_on
-        if dep not in known
-    ]
+    return [(task.task_id, dep) for task in plan.tasks for dep in task.depends_on if dep not in known]
 
 
 def ancestor_map(plan: Plan) -> dict[str, list[str]]:
@@ -203,36 +197,6 @@ def scan_out_of_scope(req: Requirement, tasks: list[Task]) -> list[dict[str, str
     return hits
 
 
-def _waitlist_service(plan: Plan) -> str | None:
-    """The task that owns waitlist state; standard plans name it T03."""
-    for task in plan.tasks:
-        if task.task_id == WAITLIST_SERVICE_TASK and task.type in IMPLEMENTATION_TYPES:
-            return WAITLIST_SERVICE_TASK
-    candidates = [
-        task.task_id
-        for task in plan.tasks
-        if task.type == "implement"
-        and "FR-003" in task.sources
-        and "候补" in task.goal
-    ]
-    return min(candidates) if candidates else None
-
-
-def _consumes_waitlist_state(task: Task) -> bool:
-    """Implementation work that reads waitlist state must receive the waitlist service.
-
-    Interface and doc cards may name every FR without consuming runtime state, so
-    only implementation tasks (and the standard status page marker) are bound.
-    """
-    if task.type != "implement":
-        return False
-    return (
-        task.task_id == "T05"
-        or WAITLIST_STATE_REQUIREMENT in task.sources
-        or "状态查询" in task.goal
-    )
-
-
 def _draft(code: IssueCode, message: str, task_id: str | None = None, source_id: str | None = None):
     return {"code": code, "message": message, "task_id": task_id, "source_id": source_id}
 
@@ -248,6 +212,13 @@ def _issue_sort_key(draft: dict) -> tuple[str, str, str, str]:
 
 def validate_plan_semantics(plan: Plan, req: Requirement, ds: Design) -> PlanValidationReport:
     drafts: list[dict] = []
+    for name, actual, expected in (
+        ("plan.requirement", plan.requirement, req.ref()),
+        ("plan.design", plan.design, ds.ref()),
+        ("design.requirement", ds.requirement, req.ref()),
+    ):
+        if actual != expected:
+            drafts.append(_draft("STALE_INPUT_REFERENCE", f"{name} does not bind the supplied version/hash"))
     req_ids = requirement_ids(req)
     ds_ids = design_element_ids(ds)
     known_sources = set(req_ids) | set(ds_ids)
@@ -350,7 +321,6 @@ def validate_plan_semantics(plan: Plan, req: Requirement, ds: Design) -> PlanVal
         for output in task.outputs:
             producers.setdefault(output, task.task_id)
     ancestors = ancestor_map(plan)
-    supplied: set[tuple[str, str]] = set()
     for task in plan.tasks:
         for item in task.inputs:
             if not item.startswith("artifact:"):
@@ -375,26 +345,6 @@ def validate_plan_semantics(plan: Plan, req: Requirement, ds: Design) -> PlanVal
                         source_id=producer,
                     )
                 )
-                supplied.add((task.task_id, producer))
-
-    waitlist = _waitlist_service(plan)
-    if waitlist is not None:
-        artifact = f"artifact:{waitlist}"
-        for task in plan.tasks:
-            if task.task_id == waitlist or not _consumes_waitlist_state(task):
-                continue
-            if artifact in task.inputs and waitlist in task.depends_on:
-                continue
-            if (task.task_id, waitlist) in supplied:
-                continue
-            drafts.append(
-                _draft(
-                    "MISSING_INPUT_SUPPLY",
-                    f"任务 {task.task_id} 依赖候补状态查询，但缺少 {artifact} 输入或 {waitlist} 依赖",
-                    task_id=task.task_id,
-                    source_id=waitlist,
-                )
-            )
 
     # 7. Write scope normalization.
     for task in plan.tasks:

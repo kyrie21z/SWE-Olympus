@@ -28,6 +28,7 @@ from olympus.planning.validator import (
     uncovered_design_elements,
 )
 
+
 class TraceabilityRow(Contract):
     req_id: Id
     req_text: Id
@@ -75,13 +76,13 @@ def _task_ids_by_type(tasks, kind: str) -> list[str]:
     return [task.task_id for task in tasks if task.type == kind]
 
 
-def build_planning_traceability(
-    req: Requirement, ds: Design, plan: Plan
-) -> PlanningTraceabilityIndex:
+def build_planning_traceability(req: Requirement, ds: Design, plan: Plan) -> PlanningTraceabilityIndex:
     if plan.requirement != req.ref():
         raise ValueError("plan does not bind the supplied requirement version")
     if plan.design != ds.ref():
         raise ValueError("plan does not bind the supplied design version")
+    if ds.requirement != req.ref():
+        raise ValueError("design does not bind the supplied requirement version")
 
     req_ids = requirement_ids(req)
     ds_ids = design_element_ids(ds)
@@ -136,14 +137,8 @@ def build_planning_traceability(
         "out_of_scope_hits": hits,
         "dangling_sources": dangling,
         "coverage_complete": not (
-            uncovered_requirements
-            or uncovered_design
-            or missing_test
-            or hits
-            or dangling
+            uncovered_requirements or uncovered_design or missing_test or hits or dangling
         ),
     }
-    draft = PlanningTraceabilityIndex.model_construct(
-        **fields, schema_version="1.0", index_hash="0" * 64
-    )
+    draft = PlanningTraceabilityIndex.model_construct(**fields, schema_version="1.0", index_hash="0" * 64)
     return PlanningTraceabilityIndex(**fields, index_hash=index_digest(draft))
