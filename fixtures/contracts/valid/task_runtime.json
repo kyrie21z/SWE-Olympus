@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "task_id": "T01",
+  "state": "waiting",
+  "verification_status": "unverified",
+  "disposition": "none",
+  "disposition_reason": null,
+  "generation": 1
+}

@@ -22,7 +22,9 @@ def run(args, cwd=ROOT):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["check", "test", "scenario", "browser", "backend", "frontend"])
+    parser.add_argument(
+        "action", choices=["check", "test", "scenario", "browser", "backend", "frontend", "generate"]
+    )
     action = parser.parse_args().action
     try:
         if action == "backend":
@@ -31,14 +33,19 @@ if __name__ == "__main__":
             run([NPM, "run", "dev"], ROOT / "frontend")
         elif action == "test":
             run([PYTHON, "-m", "pytest", "-q"])
+            run([NPM, "test"], ROOT / "frontend")
         elif action == "scenario":
             run([PYTHON, "-m", "pytest", "tests/scenarios", "-q"])
         elif action == "browser":
             run([NPM, "run", "test:browser"], ROOT / "frontend")
+        elif action == "generate":
+            run([PYTHON, "scripts/export_contracts.py"])
+            run([NPM, "run", "contracts"], ROOT / "frontend")
         elif action == "check":
+            run([PYTHON, "scripts/export_contracts.py", "--check"])
             run([PYTHON, "-m", "ruff", "check", "backend", "tests", "scripts"])
             run([PYTHON, "-m", "pytest", "-q"])
-            for script in ["build"]:
+            for script in ["contracts:check", "test", "build"]:
                 run([NPM, "run", script], ROOT / "frontend")
     except subprocess.CalledProcessError as exc:
         raise SystemExit(exc.returncode)

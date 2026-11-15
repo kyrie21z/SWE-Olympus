@@ -1,0 +1,396 @@
+{
+  "schema_version": "0.9",
+  "object_id": "PLAN-I001",
+  "version": 1,
+  "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b",
+  "provenance": [
+    {
+      "schema_version": "1.0",
+      "kind": "synthetic_fixture",
+      "source_id": "H-01",
+      "locator": "人工构造案例，非真实用户决定"
+    }
+  ],
+  "content": {
+    "tasks": [
+      {
+        "task_id": "T01",
+        "version": 1,
+        "content_hash": "0a2f6ca6c19db5c42255255b6f8db05e8ca238418056acc3754b628db87848f0"
+      },
+      {
+        "task_id": "T02",
+        "version": 1,
+        "content_hash": "5af0c7d27393c28442278a2c9490c1ca6356d16fa585b13ea27e8554efbd2a28"
+      },
+      {
+        "task_id": "T03",
+        "version": 1,
+        "content_hash": "ad69242c765680732c177cbceb9255b5e9a1a93c7e0d8261b103afa1acf1d96f"
+      },
+      {
+        "task_id": "T04",
+        "version": 1,
+        "content_hash": "9db79eaf5d890e22aacdf022f9c5e6e30e5e3e7d15299d41a5e3444f84098df1"
+      },
+      {
+        "task_id": "T05",
+        "version": 1,
+        "content_hash": "0cabcfb4a5d83e27900133469eacaea70a75050f561468384bef98561a5656cf"
+      },
+      {
+        "task_id": "T06",
+        "version": 1,
+        "content_hash": "32ab533f5fef9cce628f7b68d8125c4b092cf0e80c2109ab796df633b0a789c5"
+      },
+      {
+        "task_id": "T07",
+        "version": 1,
+        "content_hash": "70b40673d6613e885200ee07c298a36a3c2896f0f9b87e424dab704c3142529c"
+      },
+      {
+        "task_id": "T08",
+        "version": 1,
+        "content_hash": "dfd5ec0876e40722dacc7e00e40e6d641878b8ef74fc835ce0a450573508ac6c"
+      }
+    ]
+  },
+  "kind": "PLAN",
+  "requirement": {
+    "schema_version": "1.0",
+    "object_id": "I001",
+    "version": 2,
+    "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+  },
+  "design": {
+    "schema_version": "1.0",
+    "object_id": "DS-I001",
+    "version": 1,
+    "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+  },
+  "tasks": [
+    {
+      "schema_version": "1.0",
+      "task_id": "T01",
+      "version": 1,
+      "content_hash": "0a2f6ca6c19db5c42255255b6f8db05e8ca238418056acc3754b628db87848f0",
+      "type": "interface",
+      "goal": "接口类型与测试夹具",
+      "sources": [
+        "FR-001",
+        "FR-002",
+        "FR-003",
+        "FR-004",
+        "FR-005",
+        "D-SM-01"
+      ],
+      "inputs": [],
+      "outputs": [
+        "artifact:T01"
+      ],
+      "depends_on": [],
+      "executor": "Hephaestus",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t01"
+      ],
+      "checks": [
+        "check:T01"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    },
+    {
+      "schema_version": "1.0",
+      "task_id": "T02",
+      "version": 1,
+      "content_hash": "5af0c7d27393c28442278a2c9490c1ca6356d16fa585b13ea27e8554efbd2a28",
+      "type": "implement",
+      "goal": "报名与取消服务",
+      "sources": [
+        "FR-001",
+        "FR-002",
+        "FR-004",
+        "D-SM-01"
+      ],
+      "inputs": [
+        "artifact:T01"
+      ],
+      "outputs": [
+        "artifact:T02"
+      ],
+      "depends_on": [
+        "T01"
+      ],
+      "executor": "Hephaestus",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t02"
+      ],
+      "checks": [
+        "check:T02"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    },
+    {
+      "schema_version": "1.0",
+      "task_id": "T03",
+      "version": 1,
+      "content_hash": "ad69242c765680732c177cbceb9255b5e9a1a93c7e0d8261b103afa1acf1d96f",
+      "type": "implement",
+      "goal": "候补与自动递补服务",
+      "sources": [
+        "FR-003",
+        "FR-004",
+        "D-SM-01"
+      ],
+      "inputs": [
+        "artifact:T01"
+      ],
+      "outputs": [
+        "artifact:T03"
+      ],
+      "depends_on": [
+        "T01"
+      ],
+      "executor": "Hephaestus",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t03"
+      ],
+      "checks": [
+        "check:T03"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    },
+    {
+      "schema_version": "1.0",
+      "task_id": "T04",
+      "version": 1,
+      "content_hash": "9db79eaf5d890e22aacdf022f9c5e6e30e5e3e7d15299d41a5e3444f84098df1",
+      "type": "implement",
+      "goal": "报名与恢复交互",
+      "sources": [
+        "FR-001",
+        "FR-002",
+        "FR-004",
+        "D-UI-01"
+      ],
+      "inputs": [
+        "artifact:T01"
+      ],
+      "outputs": [
+        "artifact:T04"
+      ],
+      "depends_on": [
+        "T01"
+      ],
+      "executor": "Hephaestus",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t04"
+      ],
+      "checks": [
+        "check:T04"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    },
+    {
+      "schema_version": "1.0",
+      "task_id": "T05",
+      "version": 1,
+      "content_hash": "0cabcfb4a5d83e27900133469eacaea70a75050f561468384bef98561a5656cf",
+      "type": "implement",
+      "goal": "状态查询页面",
+      "sources": [
+        "FR-005",
+        "D-UI-01"
+      ],
+      "inputs": [
+        "artifact:T03"
+      ],
+      "outputs": [
+        "artifact:T05"
+      ],
+      "depends_on": [
+        "T03"
+      ],
+      "executor": "Hephaestus",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t05"
+      ],
+      "checks": [
+        "check:T05"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    },
+    {
+      "schema_version": "1.0",
+      "task_id": "T06",
+      "version": 1,
+      "content_hash": "32ab533f5fef9cce628f7b68d8125c4b092cf0e80c2109ab796df633b0a789c5",
+      "type": "test",
+      "goal": "边界与并发测试",
+      "sources": [
+        "FR-001",
+        "FR-002",
+        "FR-003",
+        "FR-004",
+        "FR-005",
+        "D-SM-01"
+      ],
+      "inputs": [
+        "artifact:T02",
+        "artifact:T03"
+      ],
+      "outputs": [
+        "artifact:T06"
+      ],
+      "depends_on": [
+        "T02",
+        "T03"
+      ],
+      "executor": "Momus",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t06"
+      ],
+      "checks": [
+        "check:T06"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    },
+    {
+      "schema_version": "1.0",
+      "task_id": "T07",
+      "version": 1,
+      "content_hash": "70b40673d6613e885200ee07c298a36a3c2896f0f9b87e424dab704c3142529c",
+      "type": "integrate",
+      "goal": "联调与恢复走查",
+      "sources": [
+        "FR-001",
+        "FR-002",
+        "FR-003",
+        "FR-004",
+        "FR-005",
+        "D-SM-01"
+      ],
+      "inputs": [
+        "artifact:T02",
+        "artifact:T03",
+        "artifact:T04",
+        "artifact:T05"
+      ],
+      "outputs": [
+        "artifact:T07"
+      ],
+      "depends_on": [
+        "T02",
+        "T03",
+        "T04",
+        "T05"
+      ],
+      "executor": "Hermes",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t07"
+      ],
+      "checks": [
+        "check:T07"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    },
+    {
+      "schema_version": "1.0",
+      "task_id": "T08",
+      "version": 1,
+      "content_hash": "dfd5ec0876e40722dacc7e00e40e6d641878b8ef74fc835ce0a450573508ac6c",
+      "type": "doc",
+      "goal": "验收汇总与交付清单",
+      "sources": [
+        "FR-001",
+        "FR-002",
+        "FR-003",
+        "FR-004",
+        "FR-005",
+        "D-SM-01"
+      ],
+      "inputs": [
+        "artifact:T06",
+        "artifact:T07"
+      ],
+      "outputs": [
+        "artifact:T08"
+      ],
+      "depends_on": [
+        "T06",
+        "T07"
+      ],
+      "executor": "Hermes",
+      "reviewer": "Argus",
+      "write_scope": [
+        "packages/t08"
+      ],
+      "checks": [
+        "check:T08"
+      ],
+      "resources": [],
+      "priority": 0,
+      "policy": {
+        "schema_version": "1.0",
+        "max_auto_retries": 2,
+        "timeout_seconds": 120
+      },
+      "required": true
+    }
+  ]
+}

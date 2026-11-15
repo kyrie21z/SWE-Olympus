@@ -1,0 +1,26 @@
+{
+  "schema_version": "0.9",
+  "record_id": "EX-1",
+  "attempt_id": "ATT-1",
+  "task_id": "T01",
+  "inputs": [
+    {
+      "schema_version": "1.0",
+      "object_id": "DS-I001",
+      "version": 1,
+      "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+    }
+  ],
+  "tools": [],
+  "artifacts": [
+    "ART-T01"
+  ],
+  "diff": "",
+  "check_outputs": [
+    "synthetic fixture only"
+  ],
+  "elapsed_ms": 0,
+  "call_count": 0,
+  "retry_history": [],
+  "mode": "mock"
+}
