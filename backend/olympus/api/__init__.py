@@ -6,12 +6,20 @@
 - 不向浏览器暴露 Store.commit 这类受信写入口。
 """
 
-from olympus.api.errors import ApiError, CursorAhead, InvalidCursor, RunNotFound, install_error_handlers
+from olympus.api.errors import (
+    ApiError,
+    CursorAhead,
+    InvalidCursor,
+    RecoveryBlocked,
+    RunNotFound,
+    install_error_handlers,
+)
 
 __all__ = [
     "ApiError",
     "CursorAhead",
     "InvalidCursor",
+    "RecoveryBlocked",
     "RunNotFound",
     "install_error_handlers",
 ]

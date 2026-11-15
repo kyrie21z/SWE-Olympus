@@ -51,6 +51,13 @@ class CursorAhead(ApiError):
     code = "CURSOR_AHEAD"
 
 
+class RecoveryBlocked(ApiError):
+    """事件链无法证明完整：服务端拒绝提供状态，而不是给出一份半成品。"""
+
+    status_code = 503
+    code = "RECOVERY_GAP"
+
+
 def _envelope(code: str, message: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"error": {"code": code, "message": message, "detail": detail or {}}}
 

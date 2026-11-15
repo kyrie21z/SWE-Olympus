@@ -16,8 +16,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from olympus.api.errors import CursorAhead, InvalidCursor, RunNotFound
+from olympus.api.errors import CursorAhead, InvalidCursor, RecoveryBlocked, RunNotFound
 from olympus.contracts.models import Event, Run
+from olympus.orchestrator.recovery import RecoveryGap, RuntimeRegistry
 from olympus.storage.sqlite import Store
 
 
@@ -32,20 +33,29 @@ def build_service(store: Store | None = None) -> RunQueryService:
 
 
 class RunQueryService:
-    """`Store` 上的一层只读门面；不写任何状态。"""
+    """只读门面：快照来自可恢复的运行态，事件来自不可变日志。"""
 
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: Store, registry: RuntimeRegistry | None = None) -> None:
         self._store = store
+        self._registry = registry if registry is not None else RuntimeRegistry(store)
 
     @property
     def store(self) -> Store:
         return self._store
 
+    @property
+    def registry(self) -> RuntimeRegistry:
+        return self._registry
+
     def snapshot(self, run_id: str) -> Run:
         try:
-            return self._store.snapshot(run_id)
+            return self._registry.get(run_id).ctx.run
         except KeyError as exc:
+            # 未知运行：让上层映射成 404，而不是 500。
             raise RunNotFound(f"运行 {run_id} 不存在") from exc
+        except RecoveryGap as exc:
+            # 恢复不了就明确说恢复不了：503 + 缺口详情，绝不返回半截状态。
+            raise RecoveryBlocked(str(exc), detail=exc.detail) from exc
 
     def events(self, run_id: str, after_seq: int) -> list[Event]:
         if after_seq < 0:
