@@ -1,111 +1,32 @@
-"""Daedalus planner: deterministic plan generation with an optional runner hook.
-
-Daedalus produces the plan and at most one revision. It never accepts tasks,
-never executes them and never closes its own review blockers.
-"""
+"""Daedalus: materialize versioned plans from semantic proposals or an explicit fixture."""
 
 from __future__ import annotations
 
+import json
 import re
+from copy import deepcopy
+from pathlib import Path
 from typing import Protocol
 
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError, create_model
 
-from olympus.agents.runtime import AgentRunner, RolePermissions, RoleRunInput
-from olympus.contracts.models import (
-    Design,
-    Plan,
-    Provenance,
-    Requirement,
-    Task,
-    fingerprint,
-)
+from olympus.agents.runtime import AgentRunner, OutputSchemaError, RolePermissions, RoleRunInput
+from olympus.contracts.models import Contract, Design, Plan, Provenance, Ref, Requirement, Task, fingerprint
 from olympus.planning.models import TaskCard, build_task_cards
-from olympus.planning.validator import (
-    design_element_ids,
-    requirement_ids,
-    validate_plan_semantics,
-)
+from olympus.planning.validator import design_element_ids, requirement_ids, validate_plan_semantics
 
 DAEDALUS = "Daedalus"
 PLAN_TASK_KIND = "plan"
-REVIEWER = "Argus"
-
-
-def _synthetic_provenance() -> Provenance:
-    return Provenance(
-        kind="synthetic_fixture", source_id="H-01", locator="人工构造案例，非真实用户决定"
-    )
-
-
-# Standard campus registration decomposition: 8 tasks, 12 dependency edges.
-# ``fr`` holds 1-based requirement ordinals; ``ds_anchor`` selects the design
-# element by the requirement it sources, so the same blueprint also applies to
-# equivalent requirement/design pairs.
-TASK_BLUEPRINT: tuple[dict, ...] = (
-    {
-        "type": "interface",
-        "goal": "接口类型与测试夹具",
-        "fr": (1, 2, 3, 4, 5),
-        "deps": (),
-        "executor": "Hephaestus",
-        "ds_anchor": 3,
-    },
-    {
-        "type": "implement",
-        "goal": "报名与取消服务",
-        "fr": (1, 2, 4),
-        "deps": ("T01",),
-        "executor": "Hephaestus",
-        "ds_anchor": 3,
-    },
-    {
-        "type": "implement",
-        "goal": "候补与自动递补服务",
-        "fr": (3, 4),
-        "deps": ("T01",),
-        "executor": "Hephaestus",
-        "ds_anchor": 3,
-    },
-    {
-        "type": "implement",
-        "goal": "报名与恢复交互",
-        "fr": (1, 2, 4),
-        "deps": ("T01",),
-        "executor": "Hephaestus",
-        "ds_anchor": 5,
-    },
-    {
-        "type": "implement",
-        "goal": "状态查询页面",
-        "fr": (5,),
-        "deps": ("T03",),
-        "executor": "Hephaestus",
-        "ds_anchor": 5,
-    },
-    {
-        "type": "test",
-        "goal": "边界与并发测试",
-        "fr": (1, 2, 3, 4, 5),
-        "deps": ("T02", "T03"),
-        "executor": "Momus",
-        "ds_anchor": 3,
-    },
-    {
-        "type": "integrate",
-        "goal": "联调与恢复走查",
-        "fr": (1, 2, 3, 4, 5),
-        "deps": ("T02", "T03", "T04", "T05"),
-        "executor": "Hermes",
-        "ds_anchor": 3,
-    },
-    {
-        "type": "doc",
-        "goal": "验收汇总与交付清单",
-        "fr": (1, 2, 3, 4, 5),
-        "deps": ("T06", "T07"),
-        "executor": "Hermes",
-        "ds_anchor": 3,
+ROOT = Path(__file__).resolve().parents[4]
+# Share Task's field types and defaults, without its version/hash validator.
+# The proposal is normalized first, then the canonical Task validates invariants.
+TaskProposal = create_model(
+    "TaskProposal",
+    __base__=Contract,
+    **{
+        name: (field.annotation, deepcopy(field))
+        for name, field in Task.model_fields.items()
+        if name not in {"schema_version", "version", "content_hash"}
     },
 )
 
@@ -120,19 +41,7 @@ _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 
 
 class PlanRunner(Protocol):
-    """Optional P2 runner: a plan request in, plan JSON out."""
-
     def run(self, request: dict[str, JsonValue]) -> Plan | dict[str, JsonValue]: ...
-
-
-def _ds_element_for(ds: Design, req_ids: list[str], anchor: int) -> str:
-    """Design element that sources the anchored requirement, with a positional fallback."""
-    target = req_ids[min(anchor, len(req_ids)) - 1]
-    for element in ds.content["elements"]:
-        if target in element["sources"]:
-            return element["id"]
-    ds_ids = design_element_ids(ds)
-    return ds_ids[min(anchor, len(ds_ids)) - 1]
 
 
 def _normalize_scope(scope: str) -> str:
@@ -150,19 +59,29 @@ class DaedalusPlanner:
     def __init__(self, runner: PlanRunner | AgentRunner | None = None):
         self._runner = runner
 
+    @staticmethod
+    def draft_schema() -> dict[str, JsonValue]:
+        task = TaskProposal.model_json_schema()
+        for key in ("version", "content_hash", "schema_version"):
+            task["properties"].pop(key, None)
+        task["required"] = [key for key in task["required"] if key not in ("version", "content_hash")]
+        definitions = task.pop("$defs", {})
+        return {
+            "type": "object",
+            "required": ["tasks"],
+            "properties": {"tasks": {"type": "array", "minItems": 1, "items": task}},
+            "$defs": definitions,
+        }
+
     def build_prompt(self, req: Requirement, ds: Design) -> str:
-        out_of_scope = "、".join(req.content["out_of_scope"]) or "无"
         return "\n".join(
             [
-                f"角色：{self.role_id}（任务分解）",
-                f"任务类型：{self.task_kind}",
-                f"需求：{req.object_id} v{req.version}（{req.content_hash[:12]}）",
-                f"设计：{ds.object_id} v{ds.version}（{ds.content_hash[:12]}）",
-                "要求：为每条 FR 与每个设计元素建立可验证任务；测试任务必须覆盖全部 FR。",
-                "接口先行：先产出接口契约与测试夹具，再并行实现；执行者不得自审。",
-                f"范围外（不得出现在目标、来源、输出、写入范围或检查中）：{out_of_scope}",
-                "输出：八任务十二边的 PLAN 语义内容；禁止标记 accepted 或触发执行。",
-                "修订：若收到审查阻塞项，只允许修订一次并重新计算版本与内容指纹。",
+                "角色：Daedalus（任务分解）。依据提供的完整需求和设计正文规划，业务领域不限。",
+                "为每条需求及设计元素建立可验证任务；任务数和依赖由实际内容决定。",
+                "遵守范围外限制、接口先行、执行者与复核者分离，每条需求有测试任务覆盖。",
+                "仅输出 JSON：tasks 数组，任务字段遵循 output_schema，不输出状态或确认。",
+                "版本、指纹、输入绑定由程序生成；不要推算哈希。write_scope 仅为后续任务范围建议。",
+                f"当前需求 {req.object_id} v{req.version}；当前设计 {ds.object_id} v{ds.version}。",
             ]
         )
 
@@ -173,76 +92,76 @@ class DaedalusPlanner:
             "prompt": self.build_prompt(req, ds),
             "requirement": req.ref().model_dump(mode="json"),
             "design": ds.ref().model_dump(mode="json"),
+            "requirement_content": req.content,
+            "design_content": ds.content,
             "requirement_ids": requirement_ids(req),
             "design_element_ids": design_element_ids(ds),
             "out_of_scope": list(req.content["out_of_scope"]),
+            "output_schema": self.draft_schema(),
             "constraints": [
                 "executor != reviewer",
-                "every FR covered by a test task",
+                "every requirement covered by a test task",
                 "no accepted state or execution",
             ],
         }
 
     def build_plan(self, req: Requirement, ds: Design) -> Plan:
-        req_ids = requirement_ids(req)
-        tasks: list[Task] = []
-        for index, spec in enumerate(TASK_BLUEPRINT, 1):
-            task_id = f"T{index:02d}"
-            sources = list(
-                dict.fromkeys(
-                    [req_ids[min(ordinal, len(req_ids)) - 1] for ordinal in spec["fr"]]
-                    + [_ds_element_for(ds, req_ids, spec["ds_anchor"])]
-                )
+        """No-provider adapter: only the exact versioned course fixture is available."""
+        fixture = json.loads((ROOT / "fixtures/contracts/valid.json").read_text(encoding="utf-8"))
+        plan = Plan.model_validate(fixture["plan"])
+        if req.ref() != plan.requirement or ds.ref() != plan.design or ds.requirement != req.ref():
+            raise OutputSchemaError(
+                "No planning provider: the default adapter only supports the bound fixture"
             )
-            data = {
-                "task_id": task_id,
-                "type": spec["type"],
-                "goal": spec["goal"],
-                "sources": sources,
-                "inputs": [f"artifact:{dep}" for dep in spec["deps"]],
-                "outputs": [f"artifact:{task_id}"],
-                "depends_on": list(spec["deps"]),
-                "executor": spec["executor"],
-                "reviewer": REVIEWER,
-                "write_scope": [f"packages/{task_id.lower()}"],
-                "checks": [f"check:{task_id}"],
-                "resources": [],
-                "priority": 0,
-                "policy": {"schema_version": "1.0", "max_auto_retries": 2, "timeout_seconds": 120},
-                "required": True,
-            }
-            tasks.append(Task(**data, version=1, content_hash=fingerprint(data)))
-        content = {
-            "tasks": [
-                {"task_id": task.task_id, "version": task.version, "content_hash": task.content_hash}
-                for task in tasks
-            ]
-        }
-        return Plan(
-            object_id=f"PLAN-{req.object_id}",
-            version=1,
-            content=content,
-            content_hash=fingerprint(content),
-            provenance=[_synthetic_provenance()],
-            requirement=req.ref(),
-            design=ds.ref(),
-            tasks=tasks,
-        )
+        return plan
 
     @staticmethod
-    def _is_complete_plan_payload(output: dict[str, JsonValue]) -> bool:
-        """True only for a full Plan payload, not a partial plan draft from a model."""
-        if "object_id" not in output or "tasks" not in output:
-            return False
-        tasks = output["tasks"]
-        if not isinstance(tasks, list) or not tasks:
-            return False
-        return all(
-            isinstance(task, dict) and "task_id" in task and "goal" in task for task in tasks
-        )
+    def _materialize(output: dict[str, JsonValue], req: Requirement, ds: Design, mode: str) -> Plan:
+        raw_tasks = output.get("tasks")
+        if not isinstance(raw_tasks, list) or not raw_tasks:
+            raise OutputSchemaError("plan output requires a non-empty tasks array; no fixture fallback")
+        try:
+            for key, expected in (("requirement", req.ref()), ("design", ds.ref())):
+                if key in output and Ref.model_validate(output[key]) != expected:
+                    raise ValueError(f"plan output has stale {key} reference")
+            tasks = []
+            for raw in raw_tasks:
+                if not isinstance(raw, dict):
+                    raise ValueError("each task must be an object")
+                # Models propose semantic fields. Program code owns all new version/hash values.
+                data = {
+                    key: value
+                    for key, value in raw.items()
+                    if key not in {"schema_version", "version", "content_hash"}
+                }
+                data = TaskProposal.model_validate(data).model_dump(mode="json", exclude={"schema_version"})
+                tasks.append(Task(**data, version=1, content_hash=fingerprint(data)))
+            content = {
+                "tasks": [
+                    {"task_id": task.task_id, "version": task.version, "content_hash": task.content_hash}
+                    for task in tasks
+                ]
+            }
+            return Plan(
+                object_id=f"PLAN-{req.object_id}",
+                version=1,
+                content=content,
+                content_hash=fingerprint(content),
+                requirement=req.ref(),
+                design=ds.ref(),
+                tasks=tasks,
+                provenance=[
+                    Provenance(
+                        kind="synthetic_fixture" if mode == "mock" else "agent_hypothesis",
+                        source_id=DAEDALUS,
+                        locator="Versioned task proposal; input refs and fingerprints bound by program",
+                    )
+                ],
+            )
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise OutputSchemaError(f"invalid plan proposal: {exc}") from exc
 
     def _plan_via_runner(self, req: Requirement, ds: Design) -> Plan:
-        """Run the planning call through ``AgentRunner`` so the call is ledgered."""
         manifest = self.build_input_manifest(req, ds)
         run_input = RoleRunInput(
             role_id=self.role_id,
@@ -254,31 +173,32 @@ class DaedalusPlanner:
             permissions=RolePermissions(
                 role_id=self.role_id,
                 allowed_task_kinds=[self.task_kind],
-                allowed_input_keys=list(manifest.keys()),
+                allowed_input_keys=list(manifest),
+                can_propose_task_scopes=True,
             ),
             fixture_key="Daedalus:plan",
         )
-        role_result = self._runner.run(run_input)
-        output = role_result.structured_output
-        if self._is_complete_plan_payload(output):
-            return Plan.model_validate(output)
-        return self.build_plan(req, ds)
+        mode = self._runner.provider.mode
+        role_result = self._runner.run(
+            run_input, output_validator=lambda value: self._materialize(value, req, ds, mode)
+        )
+        return self._materialize(role_result.structured_output, req, ds, mode)
 
     def plan(self, req: Requirement, ds: Design) -> Plan:
-        """Generate a plan through the optional runner, else the deterministic adapter."""
+        if ds.requirement != req.ref():
+            raise OutputSchemaError("design does not bind the supplied requirement version/hash")
         if self._runner is None:
             return self.build_plan(req, ds)
         if isinstance(self._runner, AgentRunner):
             return self._plan_via_runner(req, ds)
         result = self._runner.run(self.build_input_manifest(req, ds))
-        return result if isinstance(result, Plan) else Plan.model_validate(result)
+        output = result.model_dump(mode="json") if isinstance(result, Plan) else result
+        return self._materialize(output, req, ds, "mock")
 
     def build_task_cards(self, req: Requirement, ds: Design, plan: Plan) -> list[TaskCard]:
         return build_task_cards(plan, req, ds)
 
-    def revise_plan(
-        self, plan: Plan, findings: list[str], req: Requirement, ds: Design
-    ) -> Plan:
+    def revise_plan(self, plan: Plan, findings: list[str], req: Requirement, ds: Design) -> Plan:
         """Apply one deterministic revision that repairs programmatic blockers.
 
         Findings are the review evidence; repairs are recomputed from the current
@@ -292,9 +212,7 @@ class DaedalusPlanner:
         known_sources = set(req_ids) | set(ds_ids)
         task_ids = [task.task_id for task in plan.tasks]
         known_tasks = set(task_ids)
-        flagged = {
-            code for code in _FLAGGED_CODES if any(code in finding for finding in findings)
-        }
+        flagged = {code for code in _FLAGGED_CODES if any(code in finding for finding in findings)}
         flagged.update(issue.code for issue in report.issues)
 
         uncovered_req = [
@@ -303,9 +221,7 @@ class DaedalusPlanner:
             if issue.code == "UNCOVERED_REQUIREMENT" and issue.source_id
         ]
         uncovered_ds = [
-            issue.source_id
-            for issue in report.issues
-            if issue.code == "UNCOVERED_DESIGN" and issue.source_id
+            issue.source_id for issue in report.issues if issue.code == "UNCOVERED_DESIGN" and issue.source_id
         ]
         missing_test = [
             issue.source_id
@@ -313,9 +229,7 @@ class DaedalusPlanner:
             if issue.code == "MISSING_TEST_COVERAGE" and issue.source_id
         ]
         producers = {output: task.task_id for task in plan.tasks for output in task.outputs}
-        interface_id = next(
-            (task.task_id for task in plan.tasks if task.type == "interface"), task_ids[0]
-        )
+        interface_id = next((task.task_id for task in plan.tasks if task.type == "interface"), task_ids[0])
         test_id = next((task.task_id for task in plan.tasks if task.type == "test"), None)
 
         revised: list[Task] = []
@@ -351,9 +265,7 @@ class DaedalusPlanner:
             if data == task.semantic_content():
                 revised.append(task)
             else:
-                revised.append(
-                    Task(**data, version=task.version + 1, content_hash=fingerprint(data))
-                )
+                revised.append(Task(**data, version=task.version + 1, content_hash=fingerprint(data)))
 
         content = {
             "tasks": [

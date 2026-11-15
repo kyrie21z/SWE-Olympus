@@ -43,6 +43,8 @@ class RolePermissions(Contract):
     allowed_task_kinds: list[Id]
     allowed_input_keys: list[Id]
     allowed_write_scopes: list[Id] = Field(default_factory=list)
+    # A PLAN may propose future task scopes; this grants no file/tool write permission.
+    can_propose_task_scopes: bool = False
     can_write_confirmation: Literal[False] = False
     can_write_budget: Literal[False] = False
     can_mark_accepted: Literal[False] = False

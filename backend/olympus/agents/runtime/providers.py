@@ -11,8 +11,8 @@ from typing import Any, Literal
 
 from pydantic import Field, JsonValue
 
-from olympus.agents.runtime.models import ProviderNotConfiguredError, RoleRunInput
-from olympus.contracts.models import Contract, fingerprint
+from olympus.agents.runtime.models import InputWhitelistError, ProviderNotConfiguredError, RoleRunInput
+from olympus.contracts.models import Contract, Ref, fingerprint
 from olympus.requests.ledger import RequestKind
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -89,7 +89,12 @@ class MockProvider:
         ]
         for key in candidates:
             if key and key in self.fixtures:
-                return self.fixtures[key]
+                spec = self.fixtures[key]
+                if isinstance(spec, dict) and "input_refs" in spec:
+                    declared = [Ref.model_validate(ref) for ref in spec["input_refs"]]
+                    if any(ref not in request.input_refs for ref in declared):
+                        raise InputWhitelistError("mock fixture is bound to different input versions")
+                return spec
         raise KeyError(f"no mock fixture for role={request.role_id!r} task_kind={request.task_kind!r}")
 
     def steps(self, request: RoleRunInput) -> list[dict[str, JsonValue]]:

@@ -104,6 +104,34 @@ def outputs():
         "fixtures/plans/compiled_manifest.json": manifest.model_dump(mode="json"),
         "fixtures/plans/traceability_matrix.json": index.model_dump(mode="json"),
         "fixtures/plans/counterexamples.json": build_counterexamples(req, ds, plan),
+        "fixtures/agents/planning_responses.json": {
+            "fixtures": {
+                "Daedalus:plan": {
+                    "input_refs": [req.ref().model_dump(mode="json"), ds.ref().model_dump(mode="json")],
+                    "steps": [
+                        {
+                            "kind": "model",
+                            "output": {
+                                "tasks": [task.semantic_content() for task in plan.tasks],
+                            },
+                        }
+                    ],
+                },
+                "Momus:plan_review": {
+                    "input_refs": [req.ref().model_dump(mode="json"), ds.ref().model_dump(mode="json")],
+                    "steps": [
+                        {
+                            "kind": "model",
+                            "output": {
+                                "verdict": "passed",
+                                "findings": [],
+                                "issues": [],
+                            },
+                        }
+                    ],
+                },
+            },
+        },
     }
 
 
@@ -120,6 +148,4 @@ if __name__ == "__main__":
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-    print(
-        "Planning fixtures checked" if args.check else "Planning fixtures exported"
-    )
+    print("Planning fixtures checked" if args.check else "Planning fixtures exported")

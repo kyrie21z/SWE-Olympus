@@ -1,53 +1,76 @@
 # P2交付与P3接棒
 
-日期：2026-11-15。对应Issue #3（OL-03）、#4（OL-04），并在同一分支 `feat/p2-agents-planning` 完成端到端接线。未合并前不关闭Issue。
+更新：2026-11-15。Issue #3/#4的基础实现已由PR #17合入main；本次修订对应审查中发现的五类缺口。以下描述当前代码的接口和验证边界，不以Issue已关闭代替验收。
 
-## 本段交付
+## 1. 交付范围
 
-| Issue | 实现 | 验收入口 |
-| --- | --- | --- |
-| #3 | 统一Agent Runner、角色权限与输入白名单、输出审计、Mock/真实provider适配、请求账本（发送前预留、幂等键、未知结果保留预算）、执行记录与推理剥离、通用独立复核（作者/角色隔离、版本与输入指纹失效、发现关闭权限） | tests/agents、tests/reviews |
-| #4 | Daedalus八任务十二边规划与单次修订、Momus程序校验加语义复核、PlanningWorkflow、任务卡、静态manifest编译器（分层/拓扑/关键路径启发式/静态冲突）、REQ→DS→Task追踪索引、PlanService打包 | tests/planning、fixtures/plans |
-| 接线 | Daedalus/Momus改为通过 `AgentRunner` 调用：计划与复核分别以 `plan`、`plan_review` 记账并写入 `ExecutionRecordService`；Momus同时向 `CommonReviewer` 提交 `ReviewSubmission`；`close_blockers` 同步关闭已记录发现 | tests/scenarios/test_p2_planning_and_review.py |
+| 模块 | 已提供内容 |
+| --- | --- |
+| Runtime | AgentRunner、RoleRunInput/RoleResult、权限和输入白名单、输出审计、Mock/RealProvider、执行记录 |
+| 请求与复核 | RequestLedger、发送前预留、query/cancel协议；CommonReviewer非作者隔离、版本绑定与关闭权限 |
+| 规划 | Daedalus语义任务接入、程序生成版本/指纹、任务卡、Momus发现合并和有限返修 |
+| 静态服务 | PlanService、拓扑/分层/前后继/层级启发式、静态冲突索引、REQ→DS→Task矩阵 |
+| 构造验证 | 校园八任务十二边、反例、单次返修及文档检索/版本历史业务走查 |
 
-规划调用写入 `LOG-PLAN-{REQ}` / `PLAN-{REQ}`，复核调用写入 `LOG-REVIEW-{PLAN}-V{版本}`；`fixture_key` 为 `Daedalus:plan`、`Momus:plan_review`。追踪矩阵只表示“已规划”，`verification_status` 固定 `unverified`、`accepted` 固定 `False`；计划包 `approved` 与 `execution_started` 同样固定 `False`。
+本期不实现Zeus动态派发、正式REQ授权核验、真实执行器、恢复/API或前端四视图；分别由P3～P6接入。
 
-## 验证入口
+## 2. 本次修订
 
-- `python scripts/project.py check`：契约/规划夹具漂移、Ruff、154项后端测试、前端契约检查、前端测试与构建。
-- `python scripts/project.py scenario`：无界面场景，当前3项，包含 `tests/scenarios/test_p2_planning_and_review.py`。
-- `python scripts/project.py generate`：改动公共模型或规划语义后重新生成 Schema、TypeScript 与 `fixtures/contracts`、`fixtures/plans`；不要手改生成物。
-- 场景使用固定 REQ `I001`、DS `DS-I001` 与 `MockProvider`，不需要模型凭据，也不访问网络。
-- 上述检查证明 mock 链路、账本、复核与静态编译可复现，不证明真实模型质量、动态调度或自动开发已实现。
+1. 不完整或错误模型输出抛OutputSchemaError，保留调用与失败记录，不静默套用校园计划。
+2. Daedalus和Momus读取完整REQ/DS正文及任务，来源仍绑定精确Ref；Momus模型发现参与最终判决并进入CommonReviewer。
+3. 校验plan.requirement、plan.design、design.requirement；失配产生STALE_INPUT_REFERENCE，禁止打包或带输入编译，追踪索引也拒绝。
+4. sent或outcome_unknown请求无提供方取消确认时，保持outcome_unknown、cancel_requested、预算预留与待对账；prepared可本地取消。
+5. 区分未来任务的write_scope建议与当前调用实际写权限；合法计划可进入，越界路径、实际path/artifact写入及特权字段仍被拒绝。
 
-## 后续接线
+## 3. Daedalus输入输出
 
-1. P3把 `AgentRunner` 接入Zeus调度：任务执行前按 `RolePermissions` 声明写入范围与输入键，调用后以账本状态判定可重试性；`outcome_unknown` 必须先对账，不得直接重发。
-2. P3的人工关口读取 `PlanningOutcome.reviews`、`CommonReviewer` 记录与 `PlanPackage`，但不能把 `verify_for_acceptance` 或 `revisions_used` 当作真人批准；批准需独立命令与人工确认记录。
-3. P3排程使用 `CompiledManifest` 的分层、拓扑序与静态冲突索引作为约束；关键路径是启发式，不得当作工期承诺或调度事实。
-4. P4接入正式REQ与Athena设计：复用同一 `CommonReviewer`（`target_kind="DS"`，复核人Momus），在真实调用前完成契约、来源、确认人权限与依赖核验。
-5. P4接入真实provider时通过环境变量注入，凭据不写入仓库；缺配置应保留 `ProviderNotConfiguredError`，不能回退到伪造成功。
-6. P5用 `ExecutionRecordService.project_for_api` 暴露记录，用 `RequestLedger.query/cancel` 支持恢复与补取；补取结果必须凭provider证据改判。
-7. P6直接消费追踪矩阵与manifest投影，保持只读；命令面板的每个动作走服务端命令与回执，不在前端乐观改状态。
+AgentRunner输入的manifest包含requirement/design精确Ref、requirement_content、design_content、范围外限制、提示词与output_schema。模型只需提出tasks语义数组；每项包含type、goal、sources、inputs/outputs、depends_on、executor/reviewer、write_scope、checks、resources、priority、policy与required等现有Task语义字段。
 
-## 安全与隔离边界
+程序构造Task/Plan、初始version=1和SHA-256，绑定当前REQ/DS。完整Plan输出也可接收，存在输入引用时必须匹配；模型提供的版本/指纹不会作为新计划的权威。后续内容修订通过revise_plan生成新版本。调用新计划时的业务版本登记/去重与批准由P3/P4服务完成，本模块不推断全局最新版本。
 
-- **统一入口**：已接入的角色调用都经 `AgentRunner`；`task_kind`、输入键、`input_refs` 在发送前校验，白名单外的输入直接拒绝。
-- **输出审计**：模型输出不得写 `confirmation`/`confirmed_by`、`call_budget`/`calls_used`，不得把 `state` 标为 `accepted`、把 `verification_status` 标为 `passed`；`write_scope`、`path` 等路径必须落在声明的允许范围内。
-- **账本先行**：请求在发出前预留调用额度；同一幂等键不得重复发送，未知结果保留预算并标记待对账，不静默记为失败或免费调用。
-- **推理不外泄**：provider 输出与工具结果中的 `reasoning`、`thinking` 等字段在入库前递归剥离。
-- **复核独立**：作者不得自审，实现角色（Athena/Daedalus/Hephaestus）不得担任复核人，PLAN与DS只能由Momus复核；复核目标必须绑定当前版本与内容指纹，`input_refs` 变化即失效。
-- **通过条件**：`passed` 需要 `required_checks` 全部满足且没有未关闭的 blocker；Daedalus永远不能关闭自己的阻塞项，`close_blockers` 只接受Momus或显式授权的非作者。
-- **单次修订**：PlanningWorkflow最多修订一次，无法修复的问题（环路、越界、粒度）保留到修订版并停下等待人工。
-- **结论不被改写**：关闭发现只更新 `CommonReviewer` 内的发现状态，不会把已记录的 `blocked` 结论改成 `passed`；新结论必须重新复核并记录新的review。
-- **Mock与真实模型**：`MockProvider` 只按固定夹具返回，结果可复现；mock 输出的 `verdict`、任务版本与指纹不参与判决，计划版本与内容指纹由程序生成。`RealProvider` 需 `OLYMPUS_MODEL_API_KEY`、`OLYMPUS_MODEL_BASE_URL`、`OLYMPUS_MODEL_NAME` 三者齐全，缺失即拒绝；传输失败或5xx记为未知结果。
-- **完整计划载荷**：模型返回完整 `Plan` 载荷时会先通过输出审计；由于计划任务自带 `write_scope`，角色需同时声明允许的写入范围，否则调用被拒绝。当前mock只返回计划大纲，未覆盖该真实路径。
+RolePermissions.can_propose_task_scopes仅允许Daedalus的plan任务使用，只豁免输出根tasks[i].write_scope的实际写授权检查。仍检查路径安全性；不赋予工具写文件权限，不豁免path、artifact.location或确认/预算/accepted等写入。未来执行时由P3/P4独立核验范围。
 
-## 文件位置
+未提供Runner时，build_plan只读取fixtures/contracts/valid.json中的准确REQ/DS版本对应计划。内置MockProvider的规划/审查响应由export_plans生成，绑定REQ/DS Ref；不匹配的业务输入在发送前拒绝。其他业务使用真实provider或显式配置匹配输入的测试响应，不借用课程模板。
 
-- 运行时：`backend/olympus/agents/runtime/`；账本：`backend/olympus/requests/ledger.py`；通用复核：`backend/olympus/reviews/common/`。
-- 规划：`backend/olympus/agents/daedalus/planner.py`、`backend/olympus/agents/momus/planning/reviewer.py`、`backend/olympus/planning/`、`backend/olympus/traceability/planning/`。
-- 夹具：`fixtures/agents/mock_responses.json`（含 `Daedalus:plan`、`Momus:plan_review`）、`fixtures/plans/`。
-- 生成脚本：`scripts/export_contracts.py`、`scripts/export_plans.py`；`--check` 失败即表示生成物漂移。
+## 4. Momus与收敛
 
-P1的契约、存储与文件交接边界见 [p1-handoff](p1-handoff.md)，本段不改变其结论。
+Momus模型输出需提供verdict和findings/ issues列表。结构化发现包含code、severity（blocker/important）、可选task_id和message；程序校验任务引用和报告目标（如提供），并设置raised_by与当前Plan绑定。非空文字发现也会保守转换成问题，未知格式或无理由的阻断声明明确报错。
+
+程序发现与模型发现共同决定最终结论：存在blocker则blocked，其他发现则needs_revision，没有发现才passed；模型写passed不能覆盖实际问题。报告包含执行记录引用及真实provider模式。长问题说明保留全文。
+
+没有Runner时只执行程序/启发式检查，证据标记momus:heuristic-review，不冒充独立模型语义复核。mock模式下模型结论也是构造数据，不证明真实模型质量。
+
+PlanningWorkflow最多一次内容修订；未解决问题继续阻断并停在blocked_awaiting_human。确定性revise_plan只修复可定位的程序问题，不保证能自动解决含义争议。无效模型输出不触发无限重试，向调用者抛OutputSchemaError；P3根据既有预算决定格式纠正或人工处理。作者不能自行关闭发现，关闭问题也不会把旧blocked报告改成passed。
+
+## 5. 版本与取消边界
+
+打包和编译在当前输入下重新检查三条依赖绑定；不要仅凭需求编号相同、任务无环或先前passed复用旧包。静态包和追踪矩阵始终不携带人工批准或执行成功。
+
+RequestLedger.cancel：
+- prepared且尚未发送：可直接取消，未消耗模型调用。
+- sent且无提供方确认：转outcome_unknown，保留额度、取消请求及待对账标记。
+- 提供方明确cancelled：记录确定终态及实际调用；迟到响应不覆盖取消终态。
+- 未知/未确认：不能向用户表示已终止，不能盲目重发。
+
+query/cancel的hook由对应provider/工具适配器提供证据，本地账本本身不会向远端发送取消。P5必须消费真实查询结果，不将请求已提出等同于终态。
+
+## 6. 后续接线
+
+| 接棒人 | 应消费的接口与责任 |
+| --- | --- |
+| P3 | Runner、PlanPackage、CompiledManifest、审查报告；实现当前版本登记、预算/执行代际、资源许可、人工确认和动态调度 |
+| P4 | 正式REQ授权与来源校验、Athena；复用Runner/CommonReviewer；执行前独立检查任务范围与证据 |
+| P5 | 账本query/cancel、ExecutionRecordService.project_for_api；接恢复、提供方证据及HTTP，不重新拼业务判据 |
+| P6 | manifest/矩阵/动态状态/回执，只读展示；统一命令走后端，不乐观标绿 |
+
+预算、权限、确认记录只能由程序/真人管理。请求账本可选JSON持久化，执行记录和CommonReviewer目前仍为进程内服务；完整恢复持久化和多用户并发接线尚待后续验证。不要把这些服务当作生产级多进程平台。
+
+## 7. 验证与位置
+
+- python scripts/project.py check：契约/规划夹具漂移、Ruff、全部后端测试、前端数据检查与构建。
+- python scripts/project.py scenario：固定案例、有限返修及另一业务的无界面走查。
+- tests/planning/test_handoff_regressions.py：本次反例回归、范围隔离、模型发现/无效输出、依赖失效、取消与HTTP替身传输。
+- python scripts/project.py browser：既有文件交接、刷新恢复、旧草稿和手机布局，默认5175；测试可设置OLYMPUS_TEST_PORT。
+- 规划模型响应生成物：fixtures/agents/planning_responses.json；修改后运行generate，提交生成差异。
+
+HTTP替身验证了RealProvider的传输适配与正文传递，没有请求真实模型。当前证据不覆盖在线模型质量、真实执行或完整产品链路；数量与运行结果见对应PR。P1范围见[p1-handoff](p1-handoff.md)。

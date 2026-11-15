@@ -234,6 +234,10 @@ class AgentRunner:
     # ------------------------------------------------------------------ validation
     @staticmethod
     def _validate_request(request: RoleRunInput) -> None:
+        if request.permissions.can_propose_task_scopes and (
+            request.role_id != "Daedalus" or request.task_kind != "plan"
+        ):
+            raise RunnerPermissionError("only the Daedalus plan task may propose task scopes")
         if request.permissions.role_id != request.role_id:
             raise RunnerPermissionError("permissions do not belong to the requesting role")
         if request.task_kind not in request.permissions.allowed_task_kinds:
@@ -247,7 +251,9 @@ class AgentRunner:
             raise InputWhitelistError("input_refs must be non-empty")
 
     # ------------------------------------------------------------------ security
-    def _audit_output(self, value: JsonValue, permissions: RolePermissions) -> None:
+    def _audit_output(
+        self, value: JsonValue, permissions: RolePermissions, *, trail: tuple[str, ...] = ()
+    ) -> None:
         if isinstance(value, dict):
             for key, item in value.items():
                 lowered = key.lower()
@@ -266,16 +272,25 @@ class AgentRunner:
                 if lowered == "verification_status" and item == "passed":
                     raise RunnerPermissionError("output attempts to mark verification passed")
                 if lowered in _PATH_KEYS:
-                    for path in self._path_strings(item):
-                        normalized = self._assert_safe_relative(path)
+                    for requested_path in self._path_strings(item):
+                        normalized = self._assert_safe_relative(requested_path)
+                        proposed_scope = (
+                            permissions.can_propose_task_scopes
+                            and len(trail) == 2
+                            and trail[0] == "tasks"
+                            and trail[1].isdigit()
+                            and lowered == "write_scope"
+                        )
                         # A bare file list may describe read evidence; it is scope
                         # checked only when the role declared write scopes.
-                        if permissions.allowed_write_scopes or lowered not in _SOFT_PATH_KEYS:
+                        if not proposed_scope and (
+                            permissions.allowed_write_scopes or lowered not in _SOFT_PATH_KEYS
+                        ):
                             self._assert_in_scope(normalized, permissions.allowed_write_scopes)
-                self._audit_output(item, permissions)
+                self._audit_output(item, permissions, trail=(*trail, key))
         elif isinstance(value, list):
-            for item in value:
-                self._audit_output(item, permissions)
+            for index, item in enumerate(value):
+                self._audit_output(item, permissions, trail=(*trail, str(index)))
 
     @staticmethod
     def _path_strings(value: JsonValue) -> list[str]:
@@ -460,9 +475,7 @@ class AgentRunner:
 
     @staticmethod
     def _base_idempotency_key(request: RoleRunInput, input_hash: str) -> str:
-        return _clip(
-            f"{request.role_id}:{request.logical_task_id}:{request.generation}:{input_hash[:24]}"
-        )
+        return _clip(f"{request.role_id}:{request.logical_task_id}:{request.generation}:{input_hash[:24]}")
 
     @staticmethod
     def _step_key(base: str, index: int, total: int) -> str:

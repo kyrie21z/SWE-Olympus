@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Iterable, Literal
 
-from olympus.agents.runtime import AgentRunner, RolePermissions, RoleRunInput
+from olympus.agents.runtime import AgentRunner, OutputSchemaError, RolePermissions, RoleRunInput
 from olympus.contracts.models import (
     Contract,
     Design,
@@ -125,29 +125,84 @@ class MomusPlanReviewer:
                 )
         return findings
 
-    def _run_agent(self, plan: Plan, req: Requirement, ds: Design) -> None:
-        """Send the review call through ``AgentRunner`` so it is ledgered and recorded."""
-        self.runner.run(
+    @staticmethod
+    def _semantic_findings(output: dict, plan: Plan) -> list[SemanticFinding]:
+        """Validate model observations; only program code owns the final verdict."""
+        try:
+            verdict = output.get("verdict")
+            if verdict not in {"passed", "blocked", "needs_revision"}:
+                raise ValueError("semantic review requires a valid verdict")
+            if "target" in output and Ref.model_validate(output["target"]) != plan.ref():
+                raise ValueError("semantic review target is stale")
+            if "findings" not in output and "issues" not in output:
+                raise ValueError("semantic review requires findings or issues")
+            observations = []
+            for key in ("findings", "issues"):
+                items = output.get(key, [])
+                if not isinstance(items, list):
+                    raise ValueError(f"semantic review {key} must be a list")
+                for item in items:
+                    if isinstance(item, str):
+                        item = {
+                            "code": "MODEL_FINDING",
+                            "severity": "blocker" if verdict == "blocked" else "important",
+                            "message": item,
+                        }
+                    finding = SemanticFinding.model_validate(item)
+                    if not finding.message.strip():
+                        raise ValueError("semantic finding message must be non-empty")
+                    if finding.task_id is not None and finding.task_id not in {t.task_id for t in plan.tasks}:
+                        raise ValueError("semantic finding references an unknown task")
+                    if finding not in observations:
+                        observations.append(finding)
+            if verdict != "passed" and not observations:
+                raise ValueError("blocked/revision verdict must include actionable observations")
+            return observations
+        except (ValueError, TypeError) as exc:
+            raise OutputSchemaError(f"invalid semantic review: {exc}") from exc
+
+    def _run_agent(self, plan: Plan, req: Requirement, ds: Design):
+        manifest = {
+            "prompt": (
+                "You are Momus, independent plan reviewer. Compare the full requirement, design and tasks; "
+                "check meaning, omissions, coverage, granularity and out-of-scope work. "
+                "Return JSON verdict and findings (code, severity=blocker/important, task_id or null, message). "
+                "Never close findings or grant human approval. Empty findings means no observed defect, "
+                "not proof of implementation. Do not return private reasoning."
+            ),
+            "requirement": req.ref().model_dump(mode="json"),
+            "requirement_content": req.content,
+            "design": ds.ref().model_dump(mode="json"),
+            "design_content": ds.content,
+            "plan": plan.ref().model_dump(mode="json"),
+            "tasks": [task.model_dump(mode="json") for task in plan.tasks],
+            "output_schema": {
+                "type": "object",
+                "required": ["verdict", "findings"],
+                "properties": {
+                    "verdict": {"enum": ["passed", "blocked", "needs_revision"]},
+                    "findings": {"type": "array", "items": SemanticFinding.model_json_schema()},
+                },
+            },
+        }
+        result = self.runner.run(
             RoleRunInput(
                 role_id=MOMUS,
                 task_kind=REVIEW_TASK_KIND,
                 logical_task_id=f"LOG-REVIEW-{plan.object_id}-V{plan.version}",
                 task_id=plan.object_id,
-                input_manifest={
-                    "plan_id": plan.object_id,
-                    "plan_version": plan.version,
-                    "req_id": req.object_id,
-                    "ds_id": ds.object_id,
-                },
+                input_manifest=manifest,
                 input_refs=[req.ref(), ds.ref(), plan.ref()],
                 permissions=RolePermissions(
                     role_id=MOMUS,
                     allowed_task_kinds=[REVIEW_TASK_KIND],
-                    allowed_input_keys=["plan_id", "plan_version", "req_id", "ds_id"],
+                    allowed_input_keys=list(manifest),
                 ),
                 fixture_key="Momus:plan_review",
-            )
+            ),
+            output_validator=lambda output: self._semantic_findings(output, plan),
         )
+        return self._semantic_findings(result.structured_output, plan), result
 
     def review(self, plan: Plan, req: Requirement, ds: Design) -> PlanReview:
         report = validate_plan_semantics(plan, req, ds)
@@ -175,15 +230,22 @@ class MomusPlanReviewer:
                 )
             )
 
+        execution_evidence = []
+        mode = self.mode
+        checks = ["program:validate_plan_semantics", "momus:heuristic-review"]
+        if self.runner is not None:
+            agent_findings, role_result = self._run_agent(plan, req, ds)
+            findings.extend(agent_findings)
+            execution_evidence.append(role_result.execution_record_id)
+            mode = role_result.mode
+            checks = list(PLAN_REVIEW_CHECKS)
+
         if any(finding.severity == "blocker" for finding in findings):
             verdict = "blocked"
         elif findings:
             verdict = "needs_revision"
         else:
             verdict = "passed"
-
-        if self.runner is not None and isinstance(self.runner, AgentRunner):
-            self._run_agent(plan, req, ds)
 
         common_findings = [
             ReviewFinding(
@@ -207,15 +269,13 @@ class MomusPlanReviewer:
             findings=common_findings,
             evidence=[
                 f"validation:{report.plan_ref.object_id}:v{report.plan_ref.version}",
-                "program:validate_plan_semantics",
-                "momus:semantic-review",
+                *checks,
+                *execution_evidence,
             ],
             input_refs=[req.ref(), ds.ref()],
-            required_checks=list(PLAN_REVIEW_CHECKS),
-            passed_checks=(
-                list(PLAN_REVIEW_CHECKS) if verdict == "passed" else ["program:validate_plan_semantics"]
-            ),
-            mode=self.mode,
+            required_checks=checks,
+            passed_checks=(checks if verdict == "passed" else ["program:validate_plan_semantics"]),
+            mode=mode,
         )
         record = self.common_reviewer.validate_and_record(
             submission,
@@ -290,9 +350,7 @@ class PlanningWorkflow:
             raise ValueError("单次规划最多允许一轮内容修订")
         return limit
 
-    def run(
-        self, req: Requirement, ds: Design, max_revisions: int | None = None
-    ) -> PlanningOutcome:
+    def run(self, req: Requirement, ds: Design, max_revisions: int | None = None) -> PlanningOutcome:
         limit = self.max_revisions if max_revisions is None else self._revision_limit(max_revisions)
         plan = self.planner.plan(req, ds)
         reviews: list[Review] = []
