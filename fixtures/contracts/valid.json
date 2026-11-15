@@ -1,0 +1,870 @@
+{
+  "schema_version": "1.0",
+  "requirement": {
+    "schema_version": "1.0",
+    "object_id": "I001",
+    "version": 2,
+    "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587",
+    "provenance": [
+      {
+        "schema_version": "1.0",
+        "kind": "synthetic_fixture",
+        "source_id": "H-01",
+        "locator": "人工构造案例，非真实用户决定"
+      }
+    ],
+    "content": {
+      "requirements": [
+        {
+          "id": "FR-001",
+          "text": "最后名额并发不超容量",
+          "acceptance": "最后名额并发不超容量"
+        },
+        {
+          "id": "FR-002",
+          "text": "同账号不重复占位",
+          "acceptance": "同账号不重复占位"
+        },
+        {
+          "id": "FR-003",
+          "text": "自动递补最早有效候补",
+          "acceptance": "自动递补最早有效候补"
+        },
+        {
+          "id": "FR-004",
+          "text": "取消后退出有效队列",
+          "acceptance": "取消后退出有效队列"
+        },
+        {
+          "id": "FR-005",
+          "text": "主动查询状态",
+          "acceptance": "主动查询状态"
+        }
+      ],
+      "out_of_scope": [
+        "真实身份",
+        "收费",
+        "短信/推送"
+      ]
+    },
+    "kind": "REQ",
+    "confirmation": {
+      "schema_version": "1.0",
+      "confirmation_id": "H-01",
+      "actor": "YOU-fixture",
+      "origin": "synthetic_fixture",
+      "target": {
+        "schema_version": "1.0",
+        "object_id": "I001",
+        "version": 2,
+        "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+      },
+      "dependencies": [],
+      "confirmed_at": "2026-11-15T08:00:00Z"
+    }
+  },
+  "design": {
+    "schema_version": "1.0",
+    "object_id": "DS-I001",
+    "version": 1,
+    "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183",
+    "provenance": [
+      {
+        "schema_version": "1.0",
+        "kind": "synthetic_fixture",
+        "source_id": "H-01",
+        "locator": "人工构造案例，非真实用户决定"
+      }
+    ],
+    "content": {
+      "modules": [
+        "报名",
+        "候补",
+        "查询"
+      ],
+      "data": [
+        "activity",
+        "registration"
+      ],
+      "interfaces": [
+        "join",
+        "cancel",
+        "query"
+      ],
+      "states": [
+        "CONFIRMED",
+        "WAITLISTED",
+        "CANCELLED"
+      ],
+      "concurrency": "按活动事务互斥",
+      "exceptions": [
+        "容量已满",
+        "重复报名"
+      ],
+      "interaction": "主动查询与失败提示",
+      "decisions": [
+        "服务端顺序自动递补"
+      ],
+      "elements": [
+        {
+          "id": "D-DATA-01",
+          "sources": [
+            "FR-002"
+          ],
+          "description": "活动/账号唯一",
+          "acceptance_method": "独立边界与并发检查"
+        },
+        {
+          "id": "D-SM-01",
+          "sources": [
+            "FR-003",
+            "FR-004"
+          ],
+          "description": "CONFIRMED/WAITLISTED/CANCELLED，跳过取消者",
+          "acceptance_method": "独立边界与并发检查"
+        },
+        {
+          "id": "D-CON-01",
+          "sources": [
+            "FR-001",
+            "FR-003"
+          ],
+          "description": "报名、取消、递补原子事务",
+          "acceptance_method": "独立边界与并发检查"
+        },
+        {
+          "id": "D-UI-01",
+          "sources": [
+            "FR-005"
+          ],
+          "description": "仅主动查询，不推送",
+          "acceptance_method": "独立边界与并发检查"
+        }
+      ]
+    },
+    "kind": "DS",
+    "requirement": {
+      "schema_version": "1.0",
+      "object_id": "I001",
+      "version": 2,
+      "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+    }
+  },
+  "plan": {
+    "schema_version": "1.0",
+    "object_id": "PLAN-I001",
+    "version": 1,
+    "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b",
+    "provenance": [
+      {
+        "schema_version": "1.0",
+        "kind": "synthetic_fixture",
+        "source_id": "H-01",
+        "locator": "人工构造案例，非真实用户决定"
+      }
+    ],
+    "content": {
+      "tasks": [
+        {
+          "task_id": "T01",
+          "version": 1,
+          "content_hash": "0a2f6ca6c19db5c42255255b6f8db05e8ca238418056acc3754b628db87848f0"
+        },
+        {
+          "task_id": "T02",
+          "version": 1,
+          "content_hash": "5af0c7d27393c28442278a2c9490c1ca6356d16fa585b13ea27e8554efbd2a28"
+        },
+        {
+          "task_id": "T03",
+          "version": 1,
+          "content_hash": "ad69242c765680732c177cbceb9255b5e9a1a93c7e0d8261b103afa1acf1d96f"
+        },
+        {
+          "task_id": "T04",
+          "version": 1,
+          "content_hash": "9db79eaf5d890e22aacdf022f9c5e6e30e5e3e7d15299d41a5e3444f84098df1"
+        },
+        {
+          "task_id": "T05",
+          "version": 1,
+          "content_hash": "0cabcfb4a5d83e27900133469eacaea70a75050f561468384bef98561a5656cf"
+        },
+        {
+          "task_id": "T06",
+          "version": 1,
+          "content_hash": "32ab533f5fef9cce628f7b68d8125c4b092cf0e80c2109ab796df633b0a789c5"
+        },
+        {
+          "task_id": "T07",
+          "version": 1,
+          "content_hash": "70b40673d6613e885200ee07c298a36a3c2896f0f9b87e424dab704c3142529c"
+        },
+        {
+          "task_id": "T08",
+          "version": 1,
+          "content_hash": "dfd5ec0876e40722dacc7e00e40e6d641878b8ef74fc835ce0a450573508ac6c"
+        }
+      ]
+    },
+    "kind": "PLAN",
+    "requirement": {
+      "schema_version": "1.0",
+      "object_id": "I001",
+      "version": 2,
+      "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+    },
+    "design": {
+      "schema_version": "1.0",
+      "object_id": "DS-I001",
+      "version": 1,
+      "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+    },
+    "tasks": [
+      {
+        "schema_version": "1.0",
+        "task_id": "T01",
+        "version": 1,
+        "content_hash": "0a2f6ca6c19db5c42255255b6f8db05e8ca238418056acc3754b628db87848f0",
+        "type": "interface",
+        "goal": "接口类型与测试夹具",
+        "sources": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ],
+        "inputs": [],
+        "outputs": [
+          "artifact:T01"
+        ],
+        "depends_on": [],
+        "executor": "Hephaestus",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t01"
+        ],
+        "checks": [
+          "check:T01"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T02",
+        "version": 1,
+        "content_hash": "5af0c7d27393c28442278a2c9490c1ca6356d16fa585b13ea27e8554efbd2a28",
+        "type": "implement",
+        "goal": "报名与取消服务",
+        "sources": [
+          "FR-001",
+          "FR-002",
+          "FR-004",
+          "D-SM-01"
+        ],
+        "inputs": [
+          "artifact:T01"
+        ],
+        "outputs": [
+          "artifact:T02"
+        ],
+        "depends_on": [
+          "T01"
+        ],
+        "executor": "Hephaestus",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t02"
+        ],
+        "checks": [
+          "check:T02"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T03",
+        "version": 1,
+        "content_hash": "ad69242c765680732c177cbceb9255b5e9a1a93c7e0d8261b103afa1acf1d96f",
+        "type": "implement",
+        "goal": "候补与自动递补服务",
+        "sources": [
+          "FR-003",
+          "FR-004",
+          "D-SM-01"
+        ],
+        "inputs": [
+          "artifact:T01"
+        ],
+        "outputs": [
+          "artifact:T03"
+        ],
+        "depends_on": [
+          "T01"
+        ],
+        "executor": "Hephaestus",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t03"
+        ],
+        "checks": [
+          "check:T03"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T04",
+        "version": 1,
+        "content_hash": "9db79eaf5d890e22aacdf022f9c5e6e30e5e3e7d15299d41a5e3444f84098df1",
+        "type": "implement",
+        "goal": "报名与恢复交互",
+        "sources": [
+          "FR-001",
+          "FR-002",
+          "FR-004",
+          "D-UI-01"
+        ],
+        "inputs": [
+          "artifact:T01"
+        ],
+        "outputs": [
+          "artifact:T04"
+        ],
+        "depends_on": [
+          "T01"
+        ],
+        "executor": "Hephaestus",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t04"
+        ],
+        "checks": [
+          "check:T04"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T05",
+        "version": 1,
+        "content_hash": "0cabcfb4a5d83e27900133469eacaea70a75050f561468384bef98561a5656cf",
+        "type": "implement",
+        "goal": "状态查询页面",
+        "sources": [
+          "FR-005",
+          "D-UI-01"
+        ],
+        "inputs": [
+          "artifact:T03"
+        ],
+        "outputs": [
+          "artifact:T05"
+        ],
+        "depends_on": [
+          "T03"
+        ],
+        "executor": "Hephaestus",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t05"
+        ],
+        "checks": [
+          "check:T05"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T06",
+        "version": 1,
+        "content_hash": "32ab533f5fef9cce628f7b68d8125c4b092cf0e80c2109ab796df633b0a789c5",
+        "type": "test",
+        "goal": "边界与并发测试",
+        "sources": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ],
+        "inputs": [
+          "artifact:T02",
+          "artifact:T03"
+        ],
+        "outputs": [
+          "artifact:T06"
+        ],
+        "depends_on": [
+          "T02",
+          "T03"
+        ],
+        "executor": "Momus",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t06"
+        ],
+        "checks": [
+          "check:T06"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T07",
+        "version": 1,
+        "content_hash": "70b40673d6613e885200ee07c298a36a3c2896f0f9b87e424dab704c3142529c",
+        "type": "integrate",
+        "goal": "联调与恢复走查",
+        "sources": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ],
+        "inputs": [
+          "artifact:T02",
+          "artifact:T03",
+          "artifact:T04",
+          "artifact:T05"
+        ],
+        "outputs": [
+          "artifact:T07"
+        ],
+        "depends_on": [
+          "T02",
+          "T03",
+          "T04",
+          "T05"
+        ],
+        "executor": "Hermes",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t07"
+        ],
+        "checks": [
+          "check:T07"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T08",
+        "version": 1,
+        "content_hash": "dfd5ec0876e40722dacc7e00e40e6d641878b8ef74fc835ce0a450573508ac6c",
+        "type": "doc",
+        "goal": "验收汇总与交付清单",
+        "sources": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ],
+        "inputs": [
+          "artifact:T06",
+          "artifact:T07"
+        ],
+        "outputs": [
+          "artifact:T08"
+        ],
+        "depends_on": [
+          "T06",
+          "T07"
+        ],
+        "executor": "Hermes",
+        "reviewer": "Argus",
+        "write_scope": [
+          "packages/t08"
+        ],
+        "checks": [
+          "check:T08"
+        ],
+        "resources": [],
+        "priority": 0,
+        "policy": {
+          "schema_version": "1.0",
+          "max_auto_retries": 2,
+          "timeout_seconds": 120
+        },
+        "required": true
+      }
+    ]
+  },
+  "run": {
+    "schema_version": "1.0",
+    "run_id": "RUN-campus",
+    "mode": "mock",
+    "approved_package": [
+      {
+        "schema_version": "1.0",
+        "object_id": "I001",
+        "version": 2,
+        "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+      },
+      {
+        "schema_version": "1.0",
+        "object_id": "DS-I001",
+        "version": 1,
+        "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+      },
+      {
+        "schema_version": "1.0",
+        "object_id": "PLAN-I001",
+        "version": 1,
+        "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b"
+      }
+    ],
+    "state_revision": 0,
+    "event_seq": 0,
+    "status": "draft",
+    "call_budget": 40,
+    "calls_used": 0,
+    "tasks": [
+      {
+        "schema_version": "1.0",
+        "task_id": "T01",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T02",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T03",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T04",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T05",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T06",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T07",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      },
+      {
+        "schema_version": "1.0",
+        "task_id": "T08",
+        "state": "waiting",
+        "verification_status": "unverified",
+        "disposition": "none",
+        "disposition_reason": null,
+        "generation": 1
+      }
+    ]
+  },
+  "attempt": {
+    "schema_version": "1.0",
+    "attempt_id": "ATT-1",
+    "logical_task_id": "LOG-T01",
+    "run_id": "RUN-campus",
+    "task_id": "T01",
+    "generation": 1,
+    "input_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b",
+    "provider_request_id": null,
+    "idempotency_key": "REQ-1",
+    "mode": "mock",
+    "status": "prepared",
+    "auto_retry_count": 0,
+    "human_retry_count": 0
+  },
+  "artifact": {
+    "schema_version": "1.0",
+    "artifact_id": "ART-T01",
+    "run_id": "RUN-campus",
+    "task_id": "T01",
+    "attempt_id": "ATT-1",
+    "location": "packages/t01/types.json",
+    "content_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "inputs": [
+      {
+        "schema_version": "1.0",
+        "object_id": "DS-I001",
+        "version": 1,
+        "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+      }
+    ],
+    "implementation_version": "impl-v1",
+    "test_version": "tests-v1",
+    "fixture_version": "fixture-v1",
+    "mode": "mock"
+  },
+  "review": {
+    "schema_version": "1.0",
+    "review_id": "REV-1",
+    "target": {
+      "schema_version": "1.0",
+      "object_id": "PLAN-I001",
+      "version": 1,
+      "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b"
+    },
+    "author": "Daedalus",
+    "reviewer": "Momus",
+    "verdict": "passed",
+    "findings": [],
+    "evidence": [
+      "fixture:plan-check"
+    ],
+    "mode": "mock"
+  },
+  "event": {
+    "schema_version": "1.0",
+    "event_id": "EV-1",
+    "run_id": "RUN-campus",
+    "event_seq": 1,
+    "task_id": null,
+    "attempt_id": null,
+    "old_state": null,
+    "new_state": null,
+    "reason": "synthetic pause",
+    "actor_type": "human",
+    "occurred_at": "2026-11-15T08:01:00Z",
+    "state_revision": 1,
+    "snapshot": {
+      "schema_version": "1.0",
+      "run_id": "RUN-campus",
+      "mode": "mock",
+      "approved_package": [
+        {
+          "schema_version": "1.0",
+          "object_id": "I001",
+          "version": 2,
+          "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+        },
+        {
+          "schema_version": "1.0",
+          "object_id": "DS-I001",
+          "version": 1,
+          "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+        },
+        {
+          "schema_version": "1.0",
+          "object_id": "PLAN-I001",
+          "version": 1,
+          "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b"
+        }
+      ],
+      "state_revision": 1,
+      "event_seq": 1,
+      "status": "paused",
+      "call_budget": 40,
+      "calls_used": 0,
+      "tasks": [
+        {
+          "schema_version": "1.0",
+          "task_id": "T01",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T02",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T03",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T04",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T05",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T06",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T07",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T08",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        }
+      ]
+    }
+  },
+  "command": {
+    "schema_version": "1.0",
+    "operation_id": "OP-demo",
+    "run_id": "RUN-campus",
+    "actor": "YOU-fixture",
+    "action": "pause",
+    "target_id": "RUN-campus",
+    "expected_version": 1,
+    "expected_state_revision": 0,
+    "parameters": {}
+  },
+  "receipt": {
+    "schema_version": "1.0",
+    "operation_id": "OP-demo",
+    "run_id": "RUN-campus",
+    "status": "pending",
+    "reason_code": "FIXTURE_ONLY",
+    "state_revision": 0
+  },
+  "execution_record": {
+    "schema_version": "1.0",
+    "record_id": "EX-1",
+    "attempt_id": "ATT-1",
+    "task_id": "T01",
+    "inputs": [
+      {
+        "schema_version": "1.0",
+        "object_id": "DS-I001",
+        "version": 1,
+        "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+      }
+    ],
+    "tools": [],
+    "artifacts": [
+      "ART-T01"
+    ],
+    "diff": "",
+    "check_outputs": [
+      "synthetic fixture only"
+    ],
+    "elapsed_ms": 0,
+    "call_count": 0,
+    "retry_history": [],
+    "mode": "mock"
+  }
+}
