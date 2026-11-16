@@ -1,0 +1,748 @@
+{
+  "status": 200,
+  "headers": {},
+  "body": {
+    "schema_version": "1.0",
+    "run_id": "RUN-campus",
+    "snapshot": {
+      "schema_version": "1.0",
+      "run_id": "RUN-campus",
+      "mode": "mock",
+      "approved_package": [
+        {
+          "schema_version": "1.0",
+          "object_id": "I001",
+          "version": 2,
+          "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+        },
+        {
+          "schema_version": "1.0",
+          "object_id": "DS-I001",
+          "version": 1,
+          "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+        },
+        {
+          "schema_version": "1.0",
+          "object_id": "PLAN-I001",
+          "version": 1,
+          "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b"
+        }
+      ],
+      "state_revision": 1,
+      "event_seq": 1,
+      "status": "paused",
+      "call_budget": 40,
+      "calls_used": 0,
+      "tasks": [
+        {
+          "schema_version": "1.0",
+          "task_id": "T01",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T02",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T03",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T04",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T05",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T06",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T07",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        },
+        {
+          "schema_version": "1.0",
+          "task_id": "T08",
+          "state": "waiting",
+          "verification_status": "unverified",
+          "disposition": "none",
+          "disposition_reason": null,
+          "generation": 1
+        }
+      ]
+    },
+    "projection": {
+      "run": {
+        "run_id": "RUN-campus",
+        "status": "paused",
+        "state_revision": 1,
+        "event_seq": 1,
+        "call_budget": 40,
+        "calls_used": 0,
+        "tasks": [
+          {
+            "task_id": "T01",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          },
+          {
+            "task_id": "T02",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          },
+          {
+            "task_id": "T03",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          },
+          {
+            "task_id": "T04",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          },
+          {
+            "task_id": "T05",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          },
+          {
+            "task_id": "T06",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          },
+          {
+            "task_id": "T07",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          },
+          {
+            "task_id": "T08",
+            "state": "waiting",
+            "verification": "unverified",
+            "disposition": "none",
+            "generation": 1
+          }
+        ]
+      },
+      "manifest": {
+        "manifest_id": "MANIFEST-PLAN-I001-V1",
+        "layers": [
+          [
+            "T01"
+          ],
+          [
+            "T02",
+            "T03",
+            "T04"
+          ],
+          [
+            "T05",
+            "T06"
+          ],
+          [
+            "T07"
+          ],
+          [
+            "T08"
+          ]
+        ],
+        "topological_order": [
+          "T01",
+          "T02",
+          "T03",
+          "T04",
+          "T05",
+          "T06",
+          "T07",
+          "T08"
+        ],
+        "critical_chain": [
+          "T01",
+          "T03",
+          "T05",
+          "T07",
+          "T08"
+        ]
+      },
+      "sets": {
+        "eligible": [
+          "T01",
+          "T03",
+          "T02",
+          "T04",
+          "T05",
+          "T06",
+          "T07",
+          "T08"
+        ],
+        "ready": [],
+        "dispatchable": [],
+        "blocked": []
+      },
+      "progress": {
+        "accepted": 0,
+        "required": 8
+      },
+      "pause_state": {
+        "paused": true,
+        "fully_stopped": true,
+        "unsettled": []
+      },
+      "incidents": {
+        "open": [],
+        "resolved": {}
+      },
+      "resources": {
+        "inflight": 0,
+        "max_parallel": 3,
+        "executor_capacity": 1,
+        "executors": {},
+        "permits": [],
+        "attempts": {}
+      },
+      "tasks": [
+        {
+          "task_id": "T01",
+          "type": "interface",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 1,
+          "executor": "Hephaestus",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": []
+        },
+        {
+          "task_id": "T03",
+          "type": "implement",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 2,
+          "executor": "Hephaestus",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": [
+            "T01"
+          ]
+        },
+        {
+          "task_id": "T02",
+          "type": "implement",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 3,
+          "executor": "Hephaestus",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": [
+            "T01"
+          ]
+        },
+        {
+          "task_id": "T04",
+          "type": "implement",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 4,
+          "executor": "Hephaestus",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": [
+            "T01"
+          ]
+        },
+        {
+          "task_id": "T05",
+          "type": "implement",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 5,
+          "executor": "Hephaestus",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": [
+            "T03"
+          ]
+        },
+        {
+          "task_id": "T06",
+          "type": "test",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 6,
+          "executor": "Momus",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": [
+            "T02",
+            "T03"
+          ]
+        },
+        {
+          "task_id": "T07",
+          "type": "integrate",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 7,
+          "executor": "Hermes",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": [
+            "T02",
+            "T03",
+            "T04",
+            "T05"
+          ]
+        },
+        {
+          "task_id": "T08",
+          "type": "doc",
+          "state": "waiting",
+          "verification": "unverified",
+          "generation": 1,
+          "priority_rank": 8,
+          "executor": "Hermes",
+          "reviewer": "Argus",
+          "required": true,
+          "missing_predecessors": [
+            "T06",
+            "T07"
+          ]
+        }
+      ]
+    },
+    "allowed_actions": [
+      {
+        "action": "accept_risk",
+        "enabled": false,
+        "reasons": [
+          "没有处于可 accept_risk 状态的任务"
+        ],
+        "actors": [
+          "YOU"
+        ]
+      },
+      {
+        "action": "approve_design",
+        "enabled": false,
+        "reasons": [
+          "需要 run 处于 ['draft']，当前 paused"
+        ],
+        "actors": [
+          "YOU"
+        ]
+      },
+      {
+        "action": "approve_plan",
+        "enabled": false,
+        "reasons": [
+          "需要 run 处于 ['draft']，当前 paused"
+        ],
+        "actors": [
+          "YOU"
+        ]
+      },
+      {
+        "action": "confirm_delivery",
+        "enabled": false,
+        "reasons": [
+          "需要 run 处于 ['active', 'awaiting_confirmation']，当前 paused"
+        ],
+        "actors": [
+          "YOU"
+        ]
+      },
+      {
+        "action": "pause",
+        "enabled": false,
+        "reasons": [
+          "需要 run 处于 ['active']，当前 paused"
+        ],
+        "actors": [
+          "YOU",
+          "Zeus"
+        ]
+      },
+      {
+        "action": "reassign",
+        "enabled": true,
+        "reasons": [],
+        "actors": [
+          "Daedalus",
+          "YOU"
+        ]
+      },
+      {
+        "action": "request_change",
+        "enabled": true,
+        "reasons": [],
+        "actors": [
+          "YOU"
+        ]
+      },
+      {
+        "action": "resume",
+        "enabled": true,
+        "reasons": [],
+        "actors": [
+          "YOU"
+        ]
+      },
+      {
+        "action": "retry",
+        "enabled": false,
+        "reasons": [
+          "没有处于可 retry 状态的任务"
+        ],
+        "actors": [
+          "YOU"
+        ]
+      },
+      {
+        "action": "start",
+        "enabled": false,
+        "reasons": [
+          "需要 run 处于 ['draft']，当前 paused"
+        ],
+        "actors": [
+          "YOU"
+        ]
+      }
+    ],
+    "trace": {
+      "schema_version": "1.0",
+      "index_id": "TRACE-I001-DS-I001-PLAN-I001",
+      "req_ref": {
+        "schema_version": "1.0",
+        "object_id": "I001",
+        "version": 2,
+        "content_hash": "877cdf40bfeda67206edfeb5d4b6f923dde51c63b34546821fd6c0b183765587"
+      },
+      "ds_ref": {
+        "schema_version": "1.0",
+        "object_id": "DS-I001",
+        "version": 1,
+        "content_hash": "668e3799560e84bb799f195f7f21ceddc510f79bfa5190886be64042c68dd183"
+      },
+      "plan_ref": {
+        "schema_version": "1.0",
+        "object_id": "PLAN-I001",
+        "version": 1,
+        "content_hash": "971aacc84cdfee8c3d8c225b1aa8210deda167ab8e27ffcd49616a96262bba4b"
+      },
+      "rows": [
+        {
+          "schema_version": "1.0",
+          "req_id": "FR-001",
+          "req_text": "最后名额并发不超容量",
+          "ds_ids": [
+            "D-CON-01"
+          ],
+          "interface_tasks": [
+            "T01"
+          ],
+          "implement_tasks": [
+            "T02",
+            "T04"
+          ],
+          "test_tasks": [
+            "T06"
+          ],
+          "integrate_tasks": [
+            "T07"
+          ],
+          "doc_tasks": [
+            "T08"
+          ],
+          "all_tasks": [
+            "T01",
+            "T02",
+            "T04",
+            "T06",
+            "T07",
+            "T08"
+          ],
+          "stage_status": "planned",
+          "verification_status": "unverified",
+          "accepted": false
+        },
+        {
+          "schema_version": "1.0",
+          "req_id": "FR-002",
+          "req_text": "同账号不重复占位",
+          "ds_ids": [
+            "D-DATA-01"
+          ],
+          "interface_tasks": [
+            "T01"
+          ],
+          "implement_tasks": [
+            "T02",
+            "T04"
+          ],
+          "test_tasks": [
+            "T06"
+          ],
+          "integrate_tasks": [
+            "T07"
+          ],
+          "doc_tasks": [
+            "T08"
+          ],
+          "all_tasks": [
+            "T01",
+            "T02",
+            "T04",
+            "T06",
+            "T07",
+            "T08"
+          ],
+          "stage_status": "planned",
+          "verification_status": "unverified",
+          "accepted": false
+        },
+        {
+          "schema_version": "1.0",
+          "req_id": "FR-003",
+          "req_text": "自动递补最早有效候补",
+          "ds_ids": [
+            "D-SM-01",
+            "D-CON-01"
+          ],
+          "interface_tasks": [
+            "T01"
+          ],
+          "implement_tasks": [
+            "T03"
+          ],
+          "test_tasks": [
+            "T06"
+          ],
+          "integrate_tasks": [
+            "T07"
+          ],
+          "doc_tasks": [
+            "T08"
+          ],
+          "all_tasks": [
+            "T01",
+            "T03",
+            "T06",
+            "T07",
+            "T08"
+          ],
+          "stage_status": "planned",
+          "verification_status": "unverified",
+          "accepted": false
+        },
+        {
+          "schema_version": "1.0",
+          "req_id": "FR-004",
+          "req_text": "取消后退出有效队列",
+          "ds_ids": [
+            "D-SM-01"
+          ],
+          "interface_tasks": [
+            "T01"
+          ],
+          "implement_tasks": [
+            "T02",
+            "T03",
+            "T04"
+          ],
+          "test_tasks": [
+            "T06"
+          ],
+          "integrate_tasks": [
+            "T07"
+          ],
+          "doc_tasks": [
+            "T08"
+          ],
+          "all_tasks": [
+            "T01",
+            "T02",
+            "T03",
+            "T04",
+            "T06",
+            "T07",
+            "T08"
+          ],
+          "stage_status": "planned",
+          "verification_status": "unverified",
+          "accepted": false
+        },
+        {
+          "schema_version": "1.0",
+          "req_id": "FR-005",
+          "req_text": "主动查询状态",
+          "ds_ids": [
+            "D-UI-01"
+          ],
+          "interface_tasks": [
+            "T01"
+          ],
+          "implement_tasks": [
+            "T05"
+          ],
+          "test_tasks": [
+            "T06"
+          ],
+          "integrate_tasks": [
+            "T07"
+          ],
+          "doc_tasks": [
+            "T08"
+          ],
+          "all_tasks": [
+            "T01",
+            "T05",
+            "T06",
+            "T07",
+            "T08"
+          ],
+          "stage_status": "planned",
+          "verification_status": "unverified",
+          "accepted": false
+        }
+      ],
+      "design_to_tasks": {
+        "D-DATA-01": [],
+        "D-SM-01": [
+          "T01",
+          "T02",
+          "T03",
+          "T06",
+          "T07",
+          "T08"
+        ],
+        "D-CON-01": [],
+        "D-UI-01": [
+          "T04",
+          "T05"
+        ]
+      },
+      "task_to_sources": {
+        "T01": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ],
+        "T02": [
+          "FR-001",
+          "FR-002",
+          "FR-004",
+          "D-SM-01"
+        ],
+        "T03": [
+          "FR-003",
+          "FR-004",
+          "D-SM-01"
+        ],
+        "T04": [
+          "FR-001",
+          "FR-002",
+          "FR-004",
+          "D-UI-01"
+        ],
+        "T05": [
+          "FR-005",
+          "D-UI-01"
+        ],
+        "T06": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ],
+        "T07": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ],
+        "T08": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-004",
+          "FR-005",
+          "D-SM-01"
+        ]
+      },
+      "uncovered_requirements": [],
+      "uncovered_design_elements": [],
+      "missing_test_requirements": [],
+      "out_of_scope_hits": [],
+      "dangling_sources": [],
+      "coverage_complete": true,
+      "index_hash": "6ded0d0e38af161a07f74981ec2bc352fb9afec83d659ccd99650d545b31c89c"
+    },
+    "repairs": []
+  }
+}

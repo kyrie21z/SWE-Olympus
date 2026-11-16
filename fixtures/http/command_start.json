@@ -1,0 +1,25 @@
+{
+  "request": {
+    "operation_id": "op-fixture-start",
+    "run_id": "RUN-campus",
+    "actor": "YOU",
+    "action": "start",
+    "target_id": "RUN-campus",
+    "expected_version": 1,
+    "expected_state_revision": 0,
+    "parameters": {}
+  },
+  "status": 200,
+  "headers": {
+    "x-olympus-durability": "memory",
+    "x-olympus-recorded-events": "0"
+  },
+  "body": {
+    "schema_version": "1.0",
+    "operation_id": "op-fixture-start",
+    "run_id": "RUN-campus",
+    "status": "accepted",
+    "reason_code": "ok",
+    "state_revision": 2
+  }
+}

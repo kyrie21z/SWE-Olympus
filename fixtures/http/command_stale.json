@@ -1,0 +1,25 @@
+{
+  "request": {
+    "operation_id": "op-fixture-stale",
+    "run_id": "RUN-campus",
+    "actor": "YOU",
+    "action": "pause",
+    "target_id": "RUN-campus",
+    "expected_version": 1,
+    "expected_state_revision": 0,
+    "parameters": {}
+  },
+  "status": 200,
+  "headers": {
+    "x-olympus-durability": "memory",
+    "x-olympus-recorded-events": "0"
+  },
+  "body": {
+    "schema_version": "1.0",
+    "operation_id": "op-fixture-stale",
+    "run_id": "RUN-campus",
+    "status": "rejected",
+    "reason_code": "stale",
+    "state_revision": 2
+  }
+}
