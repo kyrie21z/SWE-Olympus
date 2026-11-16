@@ -10,12 +10,20 @@ import {
   MessageSquare,
   ShieldCheck,
   GitBranch,
+  MonitorCog,
 } from "lucide-react";
-export type Page = "home" | "projects" | "workstation" | "agents" | "guide";
+export type Page =
+  | "home"
+  | "projects"
+  | "workstation"
+  | "console"
+  | "agents"
+  | "guide";
 export const pages = {
   home: "欢迎总览",
   projects: "项目中心",
   workstation: "项目工作台",
+  console: "运行控制台",
   agents: "协作角色",
   guide: "使用指南",
 };
@@ -34,6 +42,11 @@ export const navItems = [
         key: "workstation",
         icon: <Workflow size={18} />,
         label: pages.workstation,
+      },
+      {
+        key: "console",
+        icon: <MonitorCog size={18} />,
+        label: pages.console,
       },
     ],
   },

@@ -63,6 +63,7 @@ import {
   storageLabel,
 } from "./imports/storage";
 import { InspectionPanel, RequirementDetails } from "./imports/Preview";
+import { P6ControlConsole } from "./p6/P6ControlConsole";
 
 const guideItems = [
   {
@@ -439,14 +440,18 @@ export function OlympusApp() {
                   ? "查看导入的需求规格与来源材料。"
                   : page === "workstation"
                     ? "从需求交接开始，跟踪设计、编排与验收。"
+                    : page === "console"
+                      ? "以单次运行快照查看阶段、业务 DAG、Agent 泳道与人工命令边界。"
                     : page === "agents"
                       ? "明确职责，独立复核，让协作有据可依。"
                       : "了解输入文件与正式流程的边界。"}
             </p>
           </div>
-          <Button icon={<Plus size={16} />} onClick={newImport}>
-            导入需求
-          </Button>
+          {page !== "console" && (
+            <Button icon={<Plus size={16} />} onClick={newImport}>
+              导入需求
+            </Button>
+          )}
         </div>
         {initial.error && (
           <Alert
@@ -908,10 +913,20 @@ export function OlympusApp() {
                       key: "execution",
                       label: "编排执行",
                       children: (
-                        <EmptyPanel
-                          title="编排器尚未启动"
-                          description="这里将接入任务 DAG、Agent 执行记录、阻塞原因与受控操作。"
-                        />
+                        <>
+                          <EmptyPanel
+                            title="P6 运行控制台已接入"
+                            description="使用 P5 聚合视图查看阶段进度、只读业务 DAG、Agent 泳道、需求追踪与命令回执。"
+                          />
+                          <div className="empty-action">
+                            <Button
+                              type="primary"
+                              onClick={() => navigate("console")}
+                            >
+                              打开运行控制台
+                            </Button>
+                          </div>
+                        </>
                       ),
                     },
                     {
@@ -941,6 +956,7 @@ export function OlympusApp() {
               </div>
             </Card>
           ))}
+        {page === "console" && <P6ControlConsole />}
         {page === "agents" && (
           <>
             <div className="roles-intro">
