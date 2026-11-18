@@ -17,7 +17,7 @@ from olympus.agents.hephaestus import HephaestusImplementer
 from olympus.agents.momus.acceptance import FrozenAcceptance
 from olympus.agents.momus.design import DesignReviewer
 from olympus.agents.momus.planning import MomusPlanReviewer, PlanningWorkflow
-from olympus.agents.runtime import AgentRunner
+from olympus.agents.runtime import AgentRunner, RunnerPermissionError
 from olympus.agents.runtime.models import OutputSchemaError, ProviderNotConfiguredError, RunnerBudget, UnknownOutcomeError
 from olympus.api.errors import ApiError
 from olympus.contracts.models import Command, Confirmation, Design, Plan, Requirement, Review, Run, Task, TaskRuntime, fingerprint
@@ -31,6 +31,7 @@ from .acceptance import generate_acceptance, validate_executable_plan
 from .offline import OfflineRequirementUnsupported, make_offline_runner, supports_offline
 
 BUSY = {"design_generating", "plan_generating", "executing"}
+DESIGN_REVISION_LIMIT = 3
 TRANSITIONS = {
     "approve_requirement": ({"requirement_pending"}, "requirement_approved"),
     "generate_design": ({"requirement_approved", "design_review_blocked"}, "design_generating"),
@@ -276,6 +277,8 @@ class WorkflowService:
                 # Reserve the operation before any external call can be scheduled.
                 doc["pending_action"] = action
                 doc["updated_at"] = datetime.now(UTC).isoformat()
+                if action == "generate_design":
+                    doc.pop("design_revision", None)
                 if action.startswith("generate_") or action == "execute":
                     doc["stage"] = next_stage
                 db.execute("INSERT INTO workflow_operations VALUES (?,?,?)",
@@ -323,6 +326,9 @@ class WorkflowService:
                 code, message = exc.code, exc.message
             elif isinstance(exc, ProviderNotConfiguredError):
                 code, message = "AGENT_NOT_CONFIGURED", str(exc)
+            elif isinstance(exc, RunnerPermissionError) and str(exc) == "call budget exhausted":
+                code = "MODEL_BUDGET_EXHAUSTED"
+                message = "本次运行的模型调用预算已用完。已保留当前设计和审查报告，请查看剩余意见。"
             else:
                 code = type(exc).__name__.upper()
                 message = "此阶段未完成，请检查 Agent 配置、模型输出格式及执行证据。"
@@ -430,43 +436,39 @@ class WorkflowService:
         del operation_id
         req, runner = self._admit(doc), self._runner(doc)
         designer, reviewer = AthenaDesigner(runner), DesignReviewer(runner)
-        previous = Design.model_validate(doc["design"]) if doc.get("design") else None
-        if previous and previous.requirement != req.ref():
+        design = Design.model_validate(doc["design"]) if doc.get("design") else None
+        if design and design.requirement != req.ref():
             raise WorkflowError("设计草稿所引用的需求已变化")
-        if previous and doc.get("design_review"):
-            report = ReviewRecord.model_validate(doc["design_review"])
-            self._record_design_review(doc, report)
-            report = reviewer.recheck(req, previous, report, run_id=doc["run_id"])
-            self._record_design_review(doc, report)
-            if report.review.verdict == "passed":
-                doc["stage"] = "design_pending_approval"
-                return
-            design = designer.generate(req, run_id=doc["run_id"], previous=previous,
-                                       findings=self._open_design_findings(report))
-            revisions_left = 0
-        else:
-            design = previous or designer.generate(req, run_id=doc["run_id"])
-            revisions_left = max(0, 2 - design.version)
-        while True:
+        report = ReviewRecord.model_validate(doc["design_review"]) if design and doc.get("design_review") else None
+        limit = DESIGN_REVISION_LIMIT if report else max(0, 2 - (design.version if design else 1))
+        if report is None:
+            design = design or designer.generate(req, run_id=doc["run_id"])
             doc["design"] = design.model_dump(mode="json")
-            doc["design_review"] = None
             report = reviewer.review(req, design, run_id=doc["run_id"])
+        phase_started = doc["updated_at"]
+        revision = 0
+        while True:
             self._record_design_review(doc, report)
+            with self._lock:
+                self._save(doc)
             report = reviewer.recheck(req, design, report, run_id=doc["run_id"])
             self._record_design_review(doc, report)
             if report.review.verdict == "passed":
                 doc["stage"] = "design_pending_approval"
                 return
-            if not revisions_left:
+            if revision >= limit:
                 doc["stage"] = "design_review_blocked"
                 return
-            revisions_left -= 1
-            design = designer.generate(req, run_id=doc["run_id"], previous=design,
-                                       findings=self._open_design_findings(report))
-
-    @staticmethod
-    def _open_design_findings(report):
-        return [f.message for f in report.submission.findings if f.status == "open"]
+            open_findings = [f for f in report.submission.findings if f.status == "open"]
+            revision += 1
+            doc["design_revision"] = {"round": revision, "limit": limit, "started_at": phase_started,
+                                      "finding_count": len(open_findings)}
+            with self._lock:
+                self._save(doc)
+            candidate = designer.generate(req, run_id=doc["run_id"], previous=design, findings=open_findings)
+            report = reviewer.review(req, candidate, run_id=doc["run_id"], previous_review=report)
+            design = candidate
+            doc["design"] = design.model_dump(mode="json")
 
     @staticmethod
     def _record_design_review(doc, report):

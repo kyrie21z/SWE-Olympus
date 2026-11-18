@@ -33,6 +33,7 @@ function reviewFindings(value: unknown) {
       const finding = jsonObject(item);
       return {
         message: typeof finding.message === "string" ? finding.message : "审查意见",
+        id: typeof finding.finding_id === "string" ? finding.finding_id : null,
         severity: finding.severity,
         closed: finding.status === "closed",
         closure: typeof finding.closure_reason === "string" ? finding.closure_reason : "",
@@ -40,7 +41,7 @@ function reviewFindings(value: unknown) {
     });
   }
   return (Array.isArray(review.findings) ? review.findings : []).map(item => ({
-    message: typeof item === "string" ? item : readableJson(item), severity: undefined, closed: false, closure: "",
+    id: null, message: typeof item === "string" ? item : readableJson(item), severity: undefined, closed: false, closure: "",
   }));
 }
 
@@ -52,7 +53,7 @@ function Review({value}: {value: unknown}) {
   const findings = reviewFindings(value);
   const label = {passed: "通过", blocked: "有阻断项", needs_revision: "待修订"}[verdict as "passed" | "blocked" | "needs_revision"] ?? verdict;
   return <div className="workflow-review"><Space wrap><strong>独立审查</strong><Tag color={verdict === "passed" ? "success" : "warning"}>{label}</Tag></Space>
-    {findings.length > 0 && <ul>{findings.map((finding, i) => <li key={i}>
+    {findings.length > 0 && <ul>{findings.map((finding, i) => <li key={finding.id ?? i}>
       {finding.closed ? <Tag color="success">已核对</Tag> : finding.severity === "blocker" ? <Tag color="error">阻断</Tag> : null}
       {finding.message}
       {finding.closure && <p>{finding.closure}</p>}
@@ -187,7 +188,9 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
   }
   const synthetic = report?.status === "synthetic";
   const generating = snapshot ? BUSY_STAGES.has(snapshot.stage) : false;
-  const elapsed = generating && snapshot?.updated_at ? Math.floor((Date.now() - Date.parse(snapshot.updated_at)) / 1000) : 0;
+  const designRevision = snapshot?.stage === "design_generating" ? snapshot.design_revision : undefined;
+  const stageStarted = designRevision?.started_at ?? snapshot?.updated_at;
+  const elapsed = generating && stageStarted ? Math.floor((Date.now() - Date.parse(stageStarted)) / 1000) : 0;
   const next = snapshot ? NEXT_ACTION[snapshot.stage] : undefined;
   const permitted = !snapshot?.allowed_actions || (next && snapshot.allowed_actions.includes(next.action));
   const retry = snapshot?.retry_safe && snapshot.retry_action && snapshot.allowed_actions?.includes(snapshot.retry_action) ? snapshot.retry_action : null;
@@ -242,7 +245,10 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
       {snapshot?.error && <Alert type="error" showIcon title={snapshot.error.code === "OUTPUTSCHEMAERROR" ? "模型已返回，设计或任务规格未通过格式检查。请重试当前阶段。" : `${snapshot.error.code}：${snapshot.error.message}`}
         action={["AGENT_NOT_CONFIGURED", "OUTCOME_UNKNOWN"].includes(snapshot.error.code) ? <Button onClick={onSettings}>检查 API 设置</Button> : undefined} />}
       {reviewTab && <Alert type="warning" showIcon title={openFindings.length ? `还有 ${openFindings.length} 条审查意见待处理` : "请查看当前审查报告"}
-        description={openFindings.length ? <ul>{openFindings.slice(0, 3).map((finding, i) => <li key={i}>{finding.message}</li>)}</ul> : undefined}
+        description={openFindings.length ? <>
+          {reviewTab === "design" && snapshot?.design_revision && <div>本次自动修订已完成 {snapshot.design_revision.round} 轮。下列意见仍待处理。</div>}
+          <ul>{openFindings.map((finding, i) => <li key={finding.id ?? i}>{finding.message}</li>)}</ul>
+        </> : undefined}
         action={<Button onClick={() => setTab(reviewTab)}>查看审查报告</Button>} />}
       {canCreate && report?.requirement && <div className="workflow-actions">
         <Radio.Group aria-label="运行模式" value={modelMode} disabled={busy} onChange={event => setModelMode(event.target.value)}>
@@ -264,7 +270,11 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
         {failedOnline && !retry && <Button disabled={busy || !report?.canSave} onClick={() => void create("online")}>新建在线运行</Button>}
       </div>
       {snapshot?.stage === "execution_blocked" && <p className="workflow-intro">请先在此运行控制台中处理失败任务或恢复暂停，再继续执行；结果未知的请求需要先核对。</p>}
-      {generating && <p className="workflow-intro" role="status">{snapshot?.pending_model_role ? `正在等待 ${snapshot.pending_model_role} 返回。` : "正在后台处理。"}{elapsed > 0 ? `本阶段已用 ${elapsed} 秒。` : ""}页面会自动更新，也可以手动刷新状态。</p>}
+      {generating && <p className="workflow-intro" role="status">
+        {designRevision && `自动修订第 ${designRevision.round} 轮（最多 ${designRevision.limit} 轮），本轮处理 ${designRevision.finding_count} 条意见。`}
+        {snapshot?.pending_model_role ? `正在等待 ${snapshot.pending_model_role} 返回。` : "正在后台处理。"}
+        {elapsed > 0 ? `本阶段已用 ${elapsed} 秒。` : ""}页面会自动更新，也可以手动刷新状态。
+      </p>}
     </Card>
     <Card className="workspace-body"><Tabs activeKey={tab} onChange={setTab} items={[{key:"requirement",label:"导入规格",children:requirementContent},{key:"design",label:"设计规格",children:designContent},{key:"plan",label:"任务分解",children:planContent},{key:"execution",label:"编排执行",children:executionContent},{key:"acceptance",label:"验收",children:acceptanceContent}]} /></Card>
   </section>;

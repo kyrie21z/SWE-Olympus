@@ -17,9 +17,12 @@ import threading
 import time
 
 from fastapi.testclient import TestClient
+import pytest
 
 from olympus.app import create_app
+from olympus.contracts.models import Requirement
 from olympus.storage.sqlite import Store
+from olympus.workflows.offline import INVENTORY, inventory_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 BUSY_STAGES = {"design_generating", "plan_generating", "executing"}
@@ -156,9 +159,9 @@ def wait_for_stage(client, workflow_id, expected, *, timeout=45):
     raise AssertionError(f"workflow did not reach {expected}")
 
 
-def action(client, workflow_id, name, expected):
+def action(client, workflow_id, name, expected, *, operation_id=None):
     response = client.post(f"/api/workflows/{workflow_id}/actions", json={
-        "action": name, "operation_id": f"{workflow_id}-{name}",
+        "action": name, "operation_id": operation_id or f"{workflow_id}-{name}",
     })
     assert response.status_code == 200, response.text
     return wait_for_stage(client, workflow_id, expected)
@@ -300,16 +303,18 @@ def test_design_recheck_keeps_real_issues_and_requires_verbatim_evidence(tmp_pat
     element = bundle.design.content["elements"][0]
     source = element["sources"][0]
     quote = "同一账号重复提交只保留原报名记录，返回原状态。"
+    failure_quote = "报名已取消时重复提交，返回原取消记录，不生成新报名。"
     corrected = False
 
     def respond(role, manifest, output):
         nonlocal corrected
         if role == "Athena" and manifest.get("previous_design"):
-            assert manifest["findings"] == [f"{source}: missing failure case."]
+            assert [finding["message"] for finding in manifest["findings"]] == [f"{source}: missing failure case."]
             corrected = True
         if role == "Athena":
             design = output["design"]
-            elements = [{**element, "acceptance_method": quote}, *design["elements"][1:]]
+            elements = [{**element, "acceptance_method": quote + (failure_quote if corrected else "")},
+                        *design["elements"][1:]]
             return {"design": {**design, "elements": elements}}
         if role == "Momus" and "design_content" in manifest and "plan" not in manifest and not corrected:
             return {"verdict": "blocked", "findings": [
@@ -318,9 +323,10 @@ def test_design_recheck_keeps_real_issues_and_requires_verbatim_evidence(tmp_pat
             ]}
         if role == "Momus" and "findings" in manifest:
             return {"decisions": [
-                {"finding_id": finding["finding_id"], "decision": "already_covered", "requirement_id": source,
-                 "element_id": element["id"], "section": "acceptance_method",
-                 "quote": quote if index == 0 else "invented quote that is not in the design"}
+                {"finding_id": finding["finding_id"], "decision": "already_covered", "citations": [{
+                    "requirement_id": source, "element_id": element["id"], "section": "acceptance_method",
+                    "quote": failure_quote if index == 1 else quote,
+                }]}
                 for index, finding in enumerate(manifest["findings"])
             ]}
         return output
@@ -333,13 +339,101 @@ def test_design_recheck_keeps_real_issues_and_requires_verbatim_evidence(tmp_pat
             designed = action(client, workflow_id, "generate_design", "design_pending_approval")
             assert designed["design"]["version"] == 2
             assert corrected
-            original, checked, current = designed["design_review_history"]
+            original, checked, carried, current = designed["design_review_history"]
             assert original["submission"]["findings"][0]["status"] == "open"
             assert checked["submission"]["findings"][0]["status"] == "closed"
             assert quote in checked["submission"]["findings"][0]["closure_reason"]
             assert checked["submission"]["findings"][1]["status"] == "open"
+            assert carried["submission"]["findings"][1]["finding_id"] == checked["submission"]["findings"][1]["finding_id"]
+            assert failure_quote in current["submission"]["findings"][1]["closure_reason"]
             assert current["review"]["verdict"] == "passed"
-            assert len([call for call in calls if "findings" in call["manifest"] and call["role"] == "Momus"]) == 1
+            assert len([call for call in calls if "findings" in call["manifest"] and call["role"] == "Momus"]) == 2
+
+
+@pytest.mark.parametrize(("budget", "mode", "expected"), [
+    (80, "fixed", "design_pending_approval"),
+    (80, "regression", "design_pending_approval"),
+    (80, "incomplete", "design_review_blocked"),
+    (8, "incomplete", "error"),
+])
+def test_inventory_revision_processes_all_findings_in_one_action(tmp_path, bundle, budget, mode, expected):
+    req = Requirement.model_validate_json((INVENTORY / "requirement.json").read_bytes())
+    base_design, _, _, _ = inventory_profile(req)
+    gaps = {
+        "FR-005": "相同订单号、商品与数量重复预占，各状态均返回原订单且库存不变。",
+        "FR-009": "每个并发可见快照均保持 initial=available+reserved+sold，三项非负。",
+        "NFR-002": "每轮使用新实例，以百线程预占十件库存。连续五轮恰有十次成功。",
+    }
+    reported = [{"code": f"GAP-{source}", "severity": "blocker", "message": f"{source}：缺少{quote}"}
+                for source, quote in gaps.items()]
+    reviews = 0
+    revision_checklists = []
+
+    def respond(role, manifest, output):
+        nonlocal reviews
+        if role == "Athena":
+            previous = manifest["previous_design"]
+            if not previous:
+                return {"design": base_design}
+            revision_checklists.append(manifest["findings"])
+            elements = list(previous["elements"])
+            sources = []
+            if len(revision_checklists) == 2:
+                sources = ["FR-005"]
+            elif len(revision_checklists) == 3 and mode in {"fixed", "regression"}:
+                sources = ["FR-009", "NFR-002"]
+                if mode == "regression":
+                    elements = [element for element in elements if element["id"] != "D-CHECK-FR-005"]
+            elif len(revision_checklists) == 4 and mode == "regression":
+                sources = ["FR-005"]
+            elements.extend({"id": f"D-CHECK-{source}", "sources": [source], "description": gaps[source],
+                             "acceptance_method": gaps[source]} for source in sources)
+            return {"design": {**previous, "elements": elements}}
+        if "design_content" in manifest:
+            reviews += 1
+            # The independent rereview only flags these on the first pass. Silence on later passes cannot close them.
+            return {"verdict": "blocked", "findings": reported} if reviews == 1 else output
+
+        elements = {element["id"] for element in manifest["design"]["elements"]}
+        decisions = []
+        for finding in manifest["findings"]:
+            source = next(source for source in gaps if source in finding["message"])
+            element_id = f"D-CHECK-{source}"
+            citations = [{"requirement_id": source, "element_id": element_id, "section": "acceptance_method",
+                          "quote": gaps[source]}] if element_id in elements else []
+            decisions.append({"finding_id": finding["finding_id"], "citations": citations,
+                              "decision": "already_covered" if citations else "keep"})
+        return {"decisions": decisions}
+
+    with workflow_model_server(bundle, transform=respond) as (url, calls):
+        with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
+            configure_roles(client, url, "Athena", "Momus")
+            created = client.post("/api/workflows", json={"requirement": req.model_dump(mode="json"),
+                "allow_synthetic": True, "model_mode": "online", "call_budget": budget})
+            assert created.status_code == 200
+            workflow_id = created.json()["workflow_id"]
+            action(client, workflow_id, "approve_requirement", "requirement_approved")
+            blocked = action(client, workflow_id, "generate_design", "design_review_blocked")
+            all_ids = [finding["finding_id"] for finding in blocked["design_review"]["submission"]["findings"]]
+            assert len(all_ids) == 3
+            revised = action(client, workflow_id, "generate_design", expected, operation_id="batch-1")
+            assert [item["finding_id"] for item in revision_checklists[1]] == all_ids
+            assert revised["design"]["version"] == revised["design_review"]["review"]["target"]["version"]
+            assert len(calls) == revised["snapshot"]["calls_used"]
+            if budget == 8:
+                assert len(calls) == budget
+                assert revised["error"]["code"] == "MODEL_BUDGET_EXHAUSTED"
+                assert "approve_design" not in revised["allowed_actions"]
+            else:
+                assert [item["finding_id"] for item in revision_checklists[2]] == all_ids[1:]
+                assert revised["design_revision"]["round"] == (2 if mode == "fixed" else 3)
+                assert revised["design_review"]["blocking_finding_ids"] == (all_ids[1:] if mode == "incomplete" else [])
+                assert ("approve_design" in revised["allowed_actions"]) == (mode != "incomplete")
+                if mode == "regression":
+                    assert [item["finding_id"] for item in revision_checklists[3]] == all_ids[:1]
+                before = len(calls)
+                action(client, workflow_id, "generate_design", expected, operation_id="batch-1")
+                assert len(calls) == before
 
 
 def test_workflow_requires_gates_and_reports_missing_roles_in_online_mode(tmp_path, bundle):

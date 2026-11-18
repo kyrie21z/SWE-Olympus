@@ -56,6 +56,9 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   test.setTimeout(60_000);
   const actions: WorkflowAction[] = [];
   let created = false;
+  let designRequests = 0;
+  let revisionComplete = false;
+  const findings = ["检查重复预占", "检查库存守恒", "执行五轮并发验收", "检查库存快照隔离"];
   let snapshot: WorkflowSnapshot = {
     workflow_id:"WF-browser-contract",run_id:"RUN-browser-contract",stage:"requirement_pending",error:null,
     requirement:example,design:null,design_review:null,plan:null,plan_review:null,acceptance:{},executions:[],
@@ -64,7 +67,11 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   await page.route("**/api/workflows**", async route => {
     const request = route.request();
     if (request.method() === "GET") {
-      if (snapshot.stage === "design_generating") snapshot = {...snapshot,stage:"design_pending_approval",design:bundle.design,design_review:{review:{verdict:"passed",findings:[]}}};
+      if (snapshot.stage === "design_generating" && designRequests === 1) {
+        snapshot = {...snapshot,stage:"design_review_blocked",design:bundle.design,design_review:{review:{verdict:"blocked",findings}}};
+      } else if (snapshot.stage === "design_generating" && revisionComplete) {
+        snapshot = {...snapshot,stage:"design_pending_approval",design:{...bundle.design,version:3},design_review:{review:{verdict:"passed",findings:[]}}};
+      }
       if (snapshot.stage === "plan_generating") snapshot = {...snapshot,stage:"plan_pending_approval",plan:bundle.plan,plan_review:{verdict:"passed",findings:[]},acceptance:{T01:{checks:{"check:T01":"assert 2 + 2 == 4"},fixtures:{},content_hash:"frozen-check-hash",author:"Momus"}}};
       return route.fulfill({json:view()});
     }
@@ -79,6 +86,9 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
     actions.push(body.action);
     const next = {approve_requirement:"requirement_approved",generate_design:"design_generating",approve_design:"design_approved",generate_plan:"plan_generating",approve_plan:"plan_approved",execute:"awaiting_acceptance",accept_run:"completed"} as const;
     snapshot = {...snapshot,stage:next[body.action as WorkflowAction]};
+    if (body.action === "generate_design" && ++designRequests === 2) {
+      snapshot.design_revision = {round:2,limit:3,started_at:new Date().toISOString(),finding_count:2};
+    }
     if (body.action === "execute") snapshot.executions = [{task_id:"T01",runtime:{state:"accepted"},execution:{checks_passed:["check:T01"],tool_mode:"real_tool",review:{verdict:"passed"}}}];
     return route.fulfill({json:view()});
   });
@@ -95,8 +105,14 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   expect(created).toBe(true); expect(actions).toEqual([]);
   await page.getByRole("button", {name:"接纳此需求用于当前运行"}).click();
   await page.getByRole("button", {name:"生成设计规格",exact:true}).click();
+  await expect(page.getByText("还有 4 条审查意见待处理")).toBeVisible();
+  await expect(page.getByText(findings[3], {exact:true}).first()).toBeVisible();
+  await expect(page.getByRole("button", {name:"批准当前设计"})).toHaveCount(0);
+  await page.getByRole("button", {name:"批量修订并复审"}).click();
+  await expect(page.getByRole("status")).toContainText("自动修订第 2 轮（最多 3 轮），本轮处理 2 条意见。");
+  revisionComplete = true;
   await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准设计");
-  expect(actions).toEqual(["approve_requirement","generate_design"]);
+  expect(actions).toEqual(["approve_requirement","generate_design","generate_design"]);
   await expect(page.getByRole("button", {name:"批准当前设计"})).toBeEnabled();
   await page.reload();
   await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准设计");
@@ -114,7 +130,7 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   expect(actions).not.toContain("accept_run");
   await page.getByRole("button", {name:"确认最终验收"}).click();
   await expect(page.getByText("当前运行已完成人工最终验收", {exact:true})).toBeVisible();
-  expect(actions).toEqual(["approve_requirement","generate_design","approve_design","generate_plan","approve_plan","execute","accept_run"]);
+  expect(actions).toEqual(["approve_requirement","generate_design","generate_design","approve_design","generate_plan","approve_plan","execute","accept_run"]);
 });
 
 test("the console handles missing and unapproved runs as empty states", async ({page}) => {

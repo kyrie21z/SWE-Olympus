@@ -35,6 +35,7 @@ export interface WorkflowSnapshot {
   offline_supported?: boolean;
   pending_model_role?: AgentRole | null;
   updated_at?: string;
+  design_revision?: { round: number; limit: number; started_at: string; finding_count: number };
   error: { code: string; message: string; action?: WorkflowAction | null } | null;
   requirement: Requirement;
   design: Design | null;
