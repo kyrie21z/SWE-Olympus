@@ -109,6 +109,11 @@ export type SchemaVersion8 = "1.0";
 export type MaxAutoRetries = number;
 export type TimeoutSeconds = number;
 export type Required = boolean;
+export type ApiContracts = {
+  [k: string]: {
+    [k: string]: string[];
+  };
+} | null;
 export type SchemaVersion9 = "1.0";
 export type RunId = string;
 export type Mode = "mock" | "real_tool" | "real_model";
@@ -331,6 +336,7 @@ export interface Task {
   priority: Priority;
   policy: AttemptPolicy;
   required: Required;
+  api_contracts?: ApiContracts;
 }
 export interface AttemptPolicy {
   schema_version: SchemaVersion8;
