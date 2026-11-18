@@ -75,13 +75,16 @@ class InventoryChecks(unittest.TestCase):
         s = self.service
         s.create_sku("A", 3)
         s.reserve("O1", "A", 2)
-        self.assertEqual(s.cancel("O1")["data"]["state"], "CANCELLED")
+        cancelled = s.cancel("O1")
+        self.assertEqual(cancelled, {"ok": True, "data": {"order_id": "O1", "sku": "A", "quantity": 2, "state": "CANCELLED"}})
         self.assertEqual(self.stock(), (3, 0, 0))
         s.reserve("O2", "A", 2)
-        self.assertEqual(s.confirm("O2")["data"]["state"], "CONFIRMED")
+        confirmed = s.confirm("O2")
+        self.assertEqual(confirmed, {"ok": True, "data": {"order_id": "O2", "sku": "A", "quantity": 2, "state": "CONFIRMED"}})
         for _ in range(10):
-            self.assertTrue(s.cancel("O1")["ok"])
-            self.assertTrue(s.confirm("O2")["ok"])
+            self.assertEqual(s.cancel("O1"), cancelled)
+            self.assertEqual(s.confirm("O2"), confirmed)
+            self.assertEqual(self.stock(), (1, 0, 2))
         self.assert_error(s.confirm("O1"), "STATE_CONFLICT")
         self.assert_error(s.cancel("O2"), "STATE_CONFLICT")
         self.assert_error(s.confirm("O3"), "ORDER_NOT_FOUND")
@@ -101,6 +104,47 @@ class InventoryChecks(unittest.TestCase):
         self.assertEqual(self.stock(), (1, 1, 0))
         self.assertEqual(self.stock("B"), (1, 0, 0))
         self.assert_error(InventoryService().get_sku("A"), "SKU_NOT_FOUND")
+
+    def test_stock_is_not_publicly_mutable_and_failed_order_can_be_reused(self):
+        s = self.service
+        with self.assertRaises(AttributeError):
+            s.skus
+        with self.assertRaises(AttributeError):
+            s.orders
+        with self.assertRaises(AttributeError):
+            s.settle
+        s.create_sku("A", 1)
+        self.assert_error(s.reserve("O", "A", 2), "INSUFFICIENT_STOCK")
+        self.assert_error(s.get_order("O"), "ORDER_NOT_FOUND")
+        self.assertEqual(self.stock(), (1, 0, 0))
+        result = s.reserve("O", "A", 1)
+        self.assertEqual(result["data"]["state"], "RESERVED")
+        self.assertEqual(self.stock(), (0, 1, 0))
+        confirmed = s.confirm("O")
+        confirmed["data"]["state"] = "changed"
+        self.assertEqual(s.get_order("O")["data"]["state"], "CONFIRMED")
+
+    def test_queries_during_concurrent_writes_see_consistent_snapshots(self):
+        s = self.service
+        s.create_sku("A", 20)
+
+        def operation(index):
+            if index < 20:
+                order_id = f"O{index}"
+                self.assertTrue(s.reserve(order_id, "A", 1)["ok"])
+                result = s.confirm(order_id) if index < 10 else s.cancel(order_id)
+                self.assertTrue(result["ok"])
+            else:
+                for order_index in range(20):
+                    self.stock()
+                    query = s.get_order(f"O{order_index}")
+                    if query["ok"]:
+                        self.assertIn(query["data"]["state"], {"RESERVED", "CONFIRMED", "CANCELLED"})
+                    else:
+                        self.assert_error(query, "ORDER_NOT_FOUND")
+
+        race(30, operation)
+        self.assertEqual(self.stock(), (10, 0, 10))
 
     def test_competing_orders_do_not_oversell(self):
         for _ in range(5):

@@ -6,12 +6,13 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import threading
+from urllib.error import URLError
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
-from olympus.agents.runtime import ProviderNotConfiguredError, RolePermissions, RoleRunInput
+from olympus.agents.runtime import ProviderNotConfiguredError, RealProvider, RolePermissions, RoleRunInput
 from olympus.api.errors import install_error_handlers
 from olympus.api.settings_routes import router
 from olympus.contracts.models import Ref, fingerprint
@@ -32,6 +33,14 @@ def model_server():
     behavior = {"status": 200, "content": '{"ok": true}'}
 
     class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            calls.append({"path": self.path, "authorization": self.headers.get("Authorization")})
+            self.send_response(behavior.get("models_status", 200))
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            body = {"data": [{"id": "design-model"}, {"id": "design-model"}, {"id": "another-model"}]}
+            self.wfile.write(json.dumps(body).encode())
+
         def do_POST(self):
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             calls.append({"path": self.path, "authorization": self.headers.get("Authorization"), **payload})
@@ -130,6 +139,26 @@ def test_non_model_role_and_unconfigured_connection_are_explicit_errors(tmp_path
     assert missing.json()["error"]["code"] == "AGENT_NOT_CONFIGURED"
 
 
+def test_model_discovery_uses_draft_without_saving_or_sending_old_key_to_a_new_address(tmp_path):
+    client = client_for(tmp_path / "state.sqlite3")
+    path = "/api/settings/agents/Athena"
+    with model_server() as (url, calls, behavior):
+        client.put(path, json={"base_url": "https://old.example/v1", "api_key": "old-key"})
+        missing = client.post(f"{path}/models", json={"base_url": url})
+        assert missing.status_code == 409
+        assert not calls
+        payload = {"base_url": url, "api_key": "draft-key"}
+        listed = client.post(f"{path}/models", json=payload)
+        assert listed.json() == {"models": ["another-model", "design-model"]}
+        assert calls == [{"path": "/v1/models", "authorization": "Bearer draft-key"}]
+        saved = client.get("/api/settings/agents").json()["agents"][0]
+        assert saved["base_url"] == "https://old.example/v1"
+        behavior["models_status"] = 404
+        unsupported = client.post(f"{path}/models", json=payload)
+        assert unsupported.status_code == 502
+        assert "手动填写模型 ID" in unsupported.json()["error"]["message"]
+
+
 def test_role_provider_uses_independent_endpoints_and_one_runner_ledger(tmp_path):
     settings = AgentSettingsStore(tmp_path / "state.sqlite3")
     with model_server() as (athena_url, athena_calls, _), model_server() as (momus_url, momus_calls, _):
@@ -166,6 +195,8 @@ def test_saved_connection_test_calls_http_and_sanitizes_upstream_errors(tmp_path
         connected = client.post("/api/settings/agents/Argus/test")
         assert connected.status_code == 200
         assert connected.json()["ok"] is True
+        assert connected.json()["model"] == "argus-model"
+        assert connected.json()["elapsed_ms"] >= 0
         assert len(calls) == 1
         behavior["status"] = 401
         rejected = client.post("/api/settings/agents/Argus/test")
@@ -178,6 +209,35 @@ def test_saved_connection_test_calls_http_and_sanitizes_upstream_errors(tmp_path
         assert malformed.status_code == 502
         assert malformed.json()["error"]["detail"]["reason"] == "invalid_model_output"
         assert "private-argus-key" not in malformed.text
+
+
+@pytest.mark.parametrize(("root", "model", "fast"), [
+    ("https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.8-max", True),
+    ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.8-flash", True),
+    ("https://example.net/v1", "qwen3.8-max", False),
+    ("https://dashscope.aliyuncs.com/compatible-mode/v1", "another-model", False),
+])
+def test_model_studio_json_requests_skip_extra_thinking_only_for_supported_models(monkeypatch, root, model, fast):
+    requests = []
+
+    def timed_out(request, *, timeout):
+        requests.append(json.loads(request.data))
+        assert timeout == 7
+        raise URLError(TimeoutError())
+
+    monkeypatch.setattr("urllib.request.urlopen", timed_out)
+    provider = RealProvider(base_url=root, model=model, api_key="test-only", timeout_seconds=7)
+    result = provider.invoke(role_request("Athena"), {}, step_index=1, prompt="Return a JSON object.")
+    assert len(requests) == 1
+    payload = requests[0]
+    if fast:
+        assert payload["enable_thinking"] is False
+        assert payload["enable_search"] is False
+        assert payload["response_format"] == {"type": "json_object"}
+    else:
+        assert not {"enable_thinking", "enable_search", "response_format"} & payload.keys()
+    assert result.status == "outcome_unknown"
+    assert result.error_code == "provider_timeout"
 
 
 def test_settings_repr_hides_secret_and_provider_never_falls_back_to_environment(tmp_path, monkeypatch):

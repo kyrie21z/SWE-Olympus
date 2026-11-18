@@ -1,4 +1,4 @@
-from olympus.agents.momus.design.reviewer import semantic_findings
+from olympus.agents.momus.design.reviewer import review_output_schema, semantic_findings
 from olympus.agents.runtime import AgentRunner, RolePermissions, RoleRunInput
 from olympus.agents.runtime.models import RunnerBudget
 from olympus.contracts.models import Ref, Task, fingerprint
@@ -16,10 +16,12 @@ class ArgusReviewer:
         artifact = receipt.artifacts[0]
         target = Ref(object_id=artifact.artifact_id, version=receipt.generation,
                      content_hash=artifact.content_hash)
+        schema = review_output_schema()
         manifest = {
             "task": task.model_dump(mode="json"), "artifact": target.model_dump(mode="json"),
             "inputs": [r.model_dump(mode="json") for r in artifact.inputs],
             "files": actual_files, "check_evidence": receipt.check_outputs,
+            "output_schema": schema,
             "prompt": "Argus: independently review the actual artifact and test evidence against the task. "
                       "Return verdict and findings [{code,severity,message}]. Do not trust author claims, "
                       "change code, change acceptance or write runtime status.",
@@ -32,6 +34,7 @@ class ArgusReviewer:
                 "task": task.content_hash, "target": target.model_dump(mode="json"),
                 "inputs": [ref.model_dump(mode="json") for ref in artifact.inputs]}),
             input_manifest=manifest, input_refs=[*artifact.inputs, target],
+            output_schema=schema,
             permissions=RolePermissions(role_id="Argus", allowed_task_kinds=["artifact_review"],
                                         allowed_input_keys=list(manifest)),
             budget=budget or RunnerBudget(),

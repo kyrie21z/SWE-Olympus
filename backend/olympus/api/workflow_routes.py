@@ -19,6 +19,7 @@ class CreateWorkflow(BaseModel):
     requirement: Requirement
     allow_synthetic: bool = False
     call_budget: int = Field(default=80, ge=1, le=200)
+    model_mode: Literal["auto", "offline", "online"] = "auto"
 
 
 class WorkflowAction(BaseModel):
@@ -42,7 +43,11 @@ def get_workflows(request: Request) -> WorkflowService:
                 # An injected runner is itself an explicit model configuration.
                 selector = has_online_config if factory is None else None
                 factory = factory or (lambda ledger: make_runner(settings, ledger=ledger))
-                service = WorkflowService(runs.store, runs.registry, factory, has_online_config=selector)
+                service = WorkflowService(
+                    runs.store, runs.registry, factory, has_online_config=selector,
+                    missing_online_roles=(lambda roles: [role for role in roles
+                                                        if not settings.get(role).configured]) if selector else None,
+                )
                 request.app.state.workflows = service
     return service
 
@@ -50,7 +55,8 @@ def get_workflows(request: Request) -> WorkflowService:
 @router.post("")
 def create_workflow(body: CreateWorkflow, workflows=Depends(get_workflows)):
     return workflows.create(body.requirement.model_dump(mode="json"),
-                            allow_synthetic=body.allow_synthetic, call_budget=body.call_budget)
+                            allow_synthetic=body.allow_synthetic, call_budget=body.call_budget,
+                            model_mode=body.model_mode)
 
 
 @router.get("/{workflow_id}")

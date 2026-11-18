@@ -151,16 +151,27 @@ export function P6ControlConsole({
   client = defaultClient,
   runId: suppliedRunId,
 }: P6ControlConsoleProps) {
+  const runId = (suppliedRunId ?? new URLSearchParams(window.location.search).get("run"))?.trim();
+  if (!runId) {
+    return (
+      <Card className="p6-error-card">
+        <Empty description="尚未选择运行" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <p>请在工作台导入需求并批准任务计划，再打开对应的运行控制台。</p>
+        <Button type="primary" href="#workstation">返回工作台</Button>
+      </Card>
+    );
+  }
+  return <BoundRunConsole key={runId} client={client} runId={runId} />;
+}
+
+function BoundRunConsole({ client, runId }: { client: P6OlympusClient; runId: string }) {
   const { message } = AntApp.useApp();
-  const runId =
-    suppliedRunId ??
-    new URLSearchParams(window.location.search).get("run") ??
-    "RUN-campus";
   const [view, setView] = useState<RunView>();
   const [trail, setTrail] = useState<TrailView>();
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const snapshotRef = useRef<ReturnType<typeof parseSnapshot> | undefined>(
     undefined,
   );
@@ -190,6 +201,7 @@ export function P6ControlConsole({
       setView({ ...incoming, snapshot });
       snapshotRef.current = snapshot;
       setError("");
+      setErrorCode("");
       setStale(false);
       try {
         setTrail(await client.getTrail(runId));
@@ -198,6 +210,7 @@ export function P6ControlConsole({
       }
     } catch (requestError) {
       setError(apiErrorText(requestError));
+      setErrorCode(requestError instanceof HttpApiError ? requestError.code : "");
       setStale(true);
     } finally {
       setLoading(false);
@@ -297,6 +310,19 @@ export function P6ControlConsole({
   }
 
   if (!view) {
+    if (errorCode === "PLAN_NOT_BOUND" || errorCode === "RUN_NOT_FOUND") {
+      const waiting = errorCode === "PLAN_NOT_BOUND";
+      return (
+        <Card className="p6-error-card">
+          <Empty description={waiting ? "任务计划尚未批准" : "找不到这次运行"} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          <p>{waiting ? "请回到工作台继续当前流程，批准任务计划后即可查看编排和执行进度。" : "请从工作台打开已有运行，或为需求文件建立新运行。"}</p>
+          <Space wrap>
+            <Button type="primary" href="#workstation">返回工作台</Button>
+            {waiting && <Button onClick={() => {setLoading(true); void loadView();}}>刷新状态</Button>}
+          </Space>
+        </Card>
+      );
+    }
     return (
       <Card className="p6-error-card">
         <Empty
@@ -306,8 +332,8 @@ export function P6ControlConsole({
         <Alert
           type="error"
           showIcon
-          title={error || "RUN_NOT_FOUND"}
-          description="请确认 P5 后端已启动，且 OLYMPUS_DB 中存在该运行。"
+          title={error || "暂时无法连接运行服务"}
+          description="请确认后端服务可用，再重新连接。"
         />
         <Button
           type="primary"

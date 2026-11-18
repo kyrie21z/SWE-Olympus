@@ -153,7 +153,7 @@ test("P6 console reads P5 views, task evidence, and command receipts", async ({
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
 
-  await page.goto("/#console");
+  await page.goto(`/?run=${runId}#console`);
   await expect(page.getByTestId("p6-console")).toBeVisible();
   await expect(page.getByText("只读业务 DAG", { exact: true })).toBeVisible();
   await expect(page.locator('[data-p6-task="T01"]')).toHaveCount(1);
@@ -211,7 +211,7 @@ test("P6 console fits a mobile viewport with internal scrolling", async ({
 }, info) => {
   await installApiReplay(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/#console");
+  await page.goto(`/?run=${runId}#console`);
   await expect(page.getByTestId("p6-console")).toBeVisible();
   expect(
     await page.evaluate(

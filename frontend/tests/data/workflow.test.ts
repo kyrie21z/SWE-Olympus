@@ -34,7 +34,7 @@ describe("workflow HTTP lifecycle", () => {
     await new WorkflowClient().create(requirement as unknown as Requirement, true);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toBe("/api/workflows");
-    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({requirement,allow_synthetic:true});
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({requirement,allow_synthetic:true,model_mode:"auto"});
   });
   it("keeps the operation ID supplied by the caller for safe resubmission", async () => {
     const fetcher = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({stage:"design_generating"}))));

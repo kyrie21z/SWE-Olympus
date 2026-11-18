@@ -17,10 +17,10 @@ from olympus.agents.hephaestus import HephaestusImplementer
 from olympus.agents.momus.acceptance import FrozenAcceptance
 from olympus.agents.momus.design import DesignReviewer
 from olympus.agents.momus.planning import MomusPlanReviewer, PlanningWorkflow
-from olympus.agents.runtime import AgentRunner
+from olympus.agents.runtime import AgentRunner, RunnerPermissionError
 from olympus.agents.runtime.models import OutputSchemaError, ProviderNotConfiguredError, RunnerBudget, UnknownOutcomeError
 from olympus.api.errors import ApiError
-from olympus.contracts.models import Command, Confirmation, Design, Plan, Requirement, Review, Run, TaskRuntime, fingerprint
+from olympus.contracts.models import Command, Confirmation, Design, Plan, Requirement, Review, Run, Task, TaskRuntime, fingerprint
 from olympus.execution import ArtifactAcceptanceService, LocalPythonExecutor
 from olympus.planning.service import PlanService
 from olympus.requests import RequestLedger
@@ -28,21 +28,43 @@ from olympus.requirements_bridge import RequirementBridge
 from olympus.reviews.common import CommonReviewer, ReviewRecord
 
 from .acceptance import generate_acceptance, validate_executable_plan
-from .offline import OfflineRequirementUnsupported, make_offline_runner
+from .offline import OfflineRequirementUnsupported, make_offline_runner, supports_offline
 
 BUSY = {"design_generating", "plan_generating", "executing"}
+DESIGN_REVISION_LIMIT = 3
 TRANSITIONS = {
     "approve_requirement": ({"requirement_pending"}, "requirement_approved"),
-    "generate_design": ({"requirement_approved"}, "design_generating"),
+    "generate_design": ({"requirement_approved", "design_review_blocked"}, "design_generating"),
     "approve_design": ({"design_pending_approval"}, "design_approved"),
-    "generate_plan": ({"design_approved"}, "plan_generating"),
+    "generate_plan": ({"design_approved", "plan_review_blocked"}, "plan_generating"),
     "approve_plan": ({"plan_pending_approval"}, "plan_approved"),
     "execute": ({"plan_approved", "execution_blocked"}, "executing"),
     "accept_run": ({"awaiting_acceptance"}, "completed"),
 }
+ONLINE_ROLES = {
+    "generate_design": ("Athena", "Momus"),
+    "generate_plan": ("Daedalus", "Momus"),
+    "execute": ("Hephaestus", "Argus"),
+}
 
 
 class LocalPlanner(DaedalusPlanner):
+    def __init__(self, runner, previous=None, findings=None):
+        super().__init__(runner)
+        self.previous = previous
+        self.findings = findings
+
+    def plan(self, req, ds):
+        if self.previous is not None:
+            return self.revise_plan(self.previous, self.findings or [], req, ds)
+        return super().plan(req, ds)
+
+    @staticmethod
+    def _materialize(output, req, ds, mode):
+        plan = DaedalusPlanner._materialize(output, req, ds, mode)
+        validate_executable_plan(plan)
+        return plan
+
     def build_input_manifest(self, req, ds):
         manifest = super().build_input_manifest(req, ds)
         manifest["execution_profile"] = {
@@ -51,9 +73,32 @@ class LocalPlanner(DaedalusPlanner):
             "runtime": "pure Python; math and from threading import Lock/RLock only; no third-party packages",
             "scopes": "bounded relative paths; preserve module/function names from design interfaces",
             "inputs": "artifact IDs produced by ancestors only; each task must run with these inputs alone",
+            "granularity": "split implementation across tasks when the requirement has three or more FR items",
         }
         manifest["prompt"] += "\n所有任务必须遵循 execution_profile，测试与集成任务只读检查前驱产物。"
         return manifest
+
+    def revise_plan(self, plan, findings, req, ds):
+        if self._runner.provider.mode != "real_model":
+            return super().revise_plan(plan, findings, req, ds)
+        proposed = self._plan_via_runner(req, ds, previous=plan, findings=findings)
+        old_by_id = {task.task_id: task for task in plan.tasks}
+        tasks = []
+        for new in proposed.tasks:
+            old = old_by_id.get(new.task_id)
+            if old and old.content_hash == new.content_hash:
+                tasks.append(old)
+            else:
+                tasks.append(Task(**new.semantic_content(), content_hash=new.content_hash,
+                                  version=old.version + 1 if old else 1))
+        content = {
+            "tasks": [{"task_id": task.task_id, "version": task.version, "content_hash": task.content_hash}
+                      for task in tasks],
+        }
+        return Plan.model_validate({
+            **proposed.model_dump(mode="json"), "version": plan.version + 1, "content": content,
+            "content_hash": fingerprint(content), "tasks": tasks,
+        })
 
 
 class WorkflowError(ApiError):
@@ -70,23 +115,45 @@ class WorkflowRunner(AgentRunner):
         self.operation_id = "initial"
 
     def run(self, request, **kwargs):
-        values = {
-            "run_id": self.run_id,
-            "budget": RunnerBudget(max_calls=self.call_budget,
-                                   calls_used=self.ledger.total_calls_accounted(self.run_id)),
-        }
-        values["idempotency_key"] = "wf-" + fingerprint({
+        key = "wf-" + fingerprint({
             "run": self.run_id, "operation": self.operation_id,
             "key": request.idempotency_key or request.logical_task_id,
             "inputs": [ref.model_dump(mode="json") for ref in request.input_refs],
         })
-        return super().run(request.model_copy(update=values), **kwargs)
+        def bind(call_key):
+            return request.model_copy(update={
+                "run_id": self.run_id, "idempotency_key": call_key,
+                "budget": RunnerBudget(max_calls=self.call_budget,
+                                       calls_used=self.ledger.total_calls_accounted(self.run_id)),
+            })
+
+        try:
+            try:
+                return super().run(bind(key), **kwargs)
+            except OutputSchemaError as exc:
+                if self.provider.mode != "real_model" or self.ledger.total_calls_accounted(self.run_id) >= self.call_budget:
+                    raise
+                note = exc.hint or "上一条响应未通过此角色的格式校验。按要求的 JSON 字段、类型及限制重新输出。"
+                builder = kwargs.get("prompt_builder")
+
+                def correction(manifest):
+                    original = builder(manifest) if builder else manifest
+                    if isinstance(original, dict):
+                        return {**original, "format_correction": note}
+                    return f"{original}\n\nFormat correction: {note}"
+
+                return super().run(bind(key + "-format"), **{**kwargs, "prompt_builder": correction})
+        except OutputSchemaError as exc:
+            exc.role_id = request.role_id
+            raise
 
 
 class WorkflowService:
-    def __init__(self, store, registry, runner_factory, *, workers=3, has_online_config=None):
+    def __init__(self, store, registry, runner_factory, *, workers=3, has_online_config=None,
+                 missing_online_roles=None):
         self.store, self.registry, self.runner_factory = store, registry, runner_factory
         self.has_online_config = has_online_config
+        self.missing_online_roles = missing_online_roles
         self.root = Path(store.path).resolve().parent / "workflows"
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -105,10 +172,12 @@ class WorkflowService:
             for workflow_id, body in rows:
                 doc = json.loads(body)
                 if doc["stage"] in BUSY or doc.get("pending_action"):
+                    interrupted_action = doc.get("pending_action")
                     doc["stage"] = "error"
                     doc["error"] = {
                         "code": "INTERRUPTED_REQUIRES_RECONCILIATION",
                         "message": "服务在请求或执行期间重启；结果需核对，未自动重发。已完成的阶段和工件已保留。",
+                        "action": interrupted_action,
                     }
                     doc["pending_action"] = None
                     doc["retry_action"], doc["retry_safe"] = None, False
@@ -133,7 +202,7 @@ class WorkflowService:
             db.execute("UPDATE workflow_documents SET body=? WHERE id=?",
                        (json.dumps(doc, ensure_ascii=False), doc["workflow_id"]))
 
-    def create(self, raw, *, allow_synthetic=False, call_budget=80):
+    def create(self, raw, *, allow_synthetic=False, call_budget=80, model_mode="auto"):
         req = Requirement.model_validate(raw)
         synthetic = any(p.kind == "synthetic_fixture" for p in req.provenance) or bool(
             req.confirmation and req.confirmation.origin == "synthetic_fixture"
@@ -143,18 +212,21 @@ class WorkflowService:
         if not synthetic and any(p.kind not in {"human", "material"} for p in req.provenance):
             raise WorkflowError("正式需求须提供人工或材料来源，并由当前用户接纳")
         workflow_id, run_id = "WF-" + uuid4().hex, "RUN-" + uuid4().hex[:20]
-        model_mode = self._default_model_mode()
+        if model_mode == "offline" and not supports_offline(req):
+            raise OfflineRequirementUnsupported("此需求版本没有离线样例，请配置模型 API 后使用在线模式。")
+        selected_mode = self._default_model_mode(req) if model_mode == "auto" else model_mode
         doc = {
             "workflow_id": workflow_id, "run_id": run_id, "stage": "requirement_pending",
             "error": None, "requirement": req.model_dump(mode="json"),
-            "synthetic": synthetic, "allow_synthetic": allow_synthetic, "model_mode": model_mode,
+            "synthetic": synthetic, "allow_synthetic": allow_synthetic, "model_mode": selected_mode,
+            "model_preference": model_mode,
             "design": None, "design_review": None, "plan": None, "plan_review": None,
             "acceptance": {}, "executions": [], "call_budget": call_budget,
             "retry_safe": False, "retry_action": None,
             "pending_action": None,
             "approvals": {}, "updated_at": datetime.now(UTC).isoformat(),
         }
-        self.store.create(Run(run_id=run_id, mode="mock" if model_mode == "offline" else "real_model",
+        self.store.create(Run(run_id=run_id, mode="mock" if selected_mode == "offline" else "real_model",
                               approved_package=[],
                               tasks=[], call_budget=call_budget))
         with self.store.connection() as db:
@@ -166,7 +238,15 @@ class WorkflowService:
         with self._lock:
             doc = self._read(workflow_id)
         doc.setdefault("model_mode", "online")
-        doc["snapshot"] = self.registry.get(doc["run_id"]).ctx.run.model_dump(mode="json")
+        runtime = self.registry.get(doc["run_id"])
+        doc["snapshot"] = runtime.ctx.run.model_dump(mode="json")
+        doc["plan_bound"] = bool(doc["approvals"].get("plan")) and runtime.scheduler is not None
+        doc["offline_supported"] = supports_offline(Requirement.model_validate(doc["requirement"]))
+        if doc["stage"] in {"design_generating", "plan_generating"}:
+            runner = self._runners.get(doc["run_id"])
+            entries = runner.ledger.entries() if runner else []
+            pending = next((entry for entry in reversed(entries) if entry.status == "sent"), None)
+            doc["pending_model_role"] = pending.role_id if pending else None
         doc["allowed_actions"] = [action for action, (stages, _) in TRANSITIONS.items()
                                   if doc["stage"] in stages]
         if doc.get("retry_safe") and doc.get("retry_action"):
@@ -196,6 +276,9 @@ class WorkflowService:
                 doc["retry_action"], doc["retry_safe"] = None, False
                 # Reserve the operation before any external call can be scheduled.
                 doc["pending_action"] = action
+                doc["updated_at"] = datetime.now(UTC).isoformat()
+                if action == "generate_design":
+                    doc.pop("design_revision", None)
                 if action.startswith("generate_") or action == "execute":
                     doc["stage"] = next_stage
                 db.execute("INSERT INTO workflow_operations VALUES (?,?,?)",
@@ -214,7 +297,11 @@ class WorkflowService:
         try:
             if action == "generate_design":
                 self._select_design_mode(doc)
-            if action.startswith("generate_") or action == "execute":
+            if action in ONLINE_ROLES:
+                if doc.get("model_mode", "online") == "online" and self.missing_online_roles:
+                    missing = self.missing_online_roles(ONLINE_ROLES[action])
+                    if missing:
+                        raise ProviderNotConfiguredError(f"请先完成 {'、'.join(missing)} 的 API 设置并测试连接。")
                 self._runner(doc).operation_id = operation_id
             getattr(self, "_" + action)(doc, operation_id)
             if not action.startswith("generate_") and action != "execute":
@@ -222,23 +309,39 @@ class WorkflowService:
         except Exception as exc:
             # Provider responses and credentials are deliberately not reflected to the browser.
             if isinstance(exc, UnknownOutcomeError):
-                code, message = "OUTCOME_UNKNOWN", "模型请求结果未知；请核对提供方记录，系统未自动重发。"
+                runner = self._runners.get(doc["run_id"])
+                entries = runner.ledger.entries() if runner else []
+                entry = next((entry for entry in reversed(entries) if entry.status == "outcome_unknown"), None)
+                role = f"{entry.role_id} 的" if entry else ""
+                reason = {
+                    "provider_timeout": "已超时，", "provider_transport_error": "连接异常，",
+                }.get(entry.error_code, "") if entry else ""
+                code = "OUTCOME_UNKNOWN"
+                message = f"{role}模型请求{reason}结果待核对。请查看提供方请求记录，系统会保留这次调用。"
+            elif isinstance(exc, OutputSchemaError):
+                code = "OUTPUT_SCHEMA_ERROR"
+                role = f"{exc.role_id} 返回的" if exc.role_id else "当前阶段的"
+                message = f"{role}结果不符合工作流要求。{exc.hint or '请重试此阶段，或更换能稳定输出结构化数据的模型。'}"
             elif isinstance(exc, (WorkflowError, OfflineRequirementUnsupported)):
                 code, message = exc.code, exc.message
             elif isinstance(exc, ProviderNotConfiguredError):
                 code, message = "AGENT_NOT_CONFIGURED", str(exc)
+            elif isinstance(exc, RunnerPermissionError) and str(exc) == "call budget exhausted":
+                code = "MODEL_BUDGET_EXHAUSTED"
+                message = "本次运行的模型调用预算已用完。已保留当前设计和审查报告，请查看剩余意见。"
             else:
                 code = type(exc).__name__.upper()
                 message = "此阶段未完成，请检查 Agent 配置、模型输出格式及执行证据。"
             doc["stage"] = "error"
-            doc["error"] = {"code": code, "message": message}
+            doc["error"] = {"code": code, "message": message, "action": action}
             runner = self._runners.get(doc["run_id"])
             unknown = runner and any(entry.status in {"sent", "outcome_unknown"}
                                      for entry in runner.ledger.entries())
             safe_error = isinstance(exc, (ProviderNotConfiguredError, OutputSchemaError, OfflineRequirementUnsupported)) or (
                 isinstance(exc, RuntimeError) and str(exc).startswith("provider request failed: http_4")
             )
-            if not unknown and safe_error and action.startswith("generate_"):
+            if not unknown and safe_error and (action.startswith("generate_") or
+                                               (action == "execute" and isinstance(exc, ProviderNotConfiguredError))):
                 doc["retry_action"], doc["retry_safe"] = action, True
         finally:
             try:
@@ -265,8 +368,10 @@ class WorkflowService:
         with self._services_lock:
             return self._make_runner(doc)
 
-    def _default_model_mode(self):
-        return "online" if self.has_online_config is None or self.has_online_config() else "offline"
+    def _default_model_mode(self, requirement):
+        if self.has_online_config is None:
+            return "online"
+        return "offline" if supports_offline(requirement) or not self.has_online_config() else "online"
 
     def _ledger(self, run_id):
         return RequestLedger(self.root / run_id / "model-requests.json")
@@ -274,9 +379,9 @@ class WorkflowService:
     def _select_design_mode(self, doc):
         """Allow old no-config failures to retry offline before any model call was sent."""
         run_id = doc["run_id"]
-        if doc.get("design") is not None or self._ledger(run_id).entries():
+        if doc.get("model_preference", "auto") != "auto" or doc.get("design") is not None or self._ledger(run_id).entries():
             return
-        desired = self._default_model_mode()
+        desired = self._default_model_mode(Requirement.model_validate(doc["requirement"]))
         runtime = self.registry.get(run_id)
         with runtime.lock:
             mode = "mock" if desired == "offline" else "real_model"
@@ -331,18 +436,47 @@ class WorkflowService:
         del operation_id
         req, runner = self._admit(doc), self._runner(doc)
         designer, reviewer = AthenaDesigner(runner), DesignReviewer(runner)
-        design = designer.generate(req, run_id=doc["run_id"])
-        for revision in range(2):
-            report = reviewer.review(req, design, run_id=doc["run_id"])
+        design = Design.model_validate(doc["design"]) if doc.get("design") else None
+        if design and design.requirement != req.ref():
+            raise WorkflowError("设计草稿所引用的需求已变化")
+        report = ReviewRecord.model_validate(doc["design_review"]) if design and doc.get("design_review") else None
+        limit = DESIGN_REVISION_LIMIT if report else max(0, 2 - (design.version if design else 1))
+        if report is None:
+            design = design or designer.generate(req, run_id=doc["run_id"])
             doc["design"] = design.model_dump(mode="json")
-            doc["design_review"] = report.model_dump(mode="json")
+            report = reviewer.review(req, design, run_id=doc["run_id"])
+        phase_started = doc["updated_at"]
+        revision = 0
+        while True:
+            self._record_design_review(doc, report)
+            with self._lock:
+                self._save(doc)
+            report = reviewer.recheck(req, design, report, run_id=doc["run_id"])
+            self._record_design_review(doc, report)
             if report.review.verdict == "passed":
                 doc["stage"] = "design_pending_approval"
                 return
-            if revision == 0:
-                design = designer.generate(req, run_id=doc["run_id"], previous=design,
-                                           findings=report.review.findings)
-        doc["stage"] = "design_review_blocked"
+            if revision >= limit:
+                doc["stage"] = "design_review_blocked"
+                return
+            open_findings = [f for f in report.submission.findings if f.status == "open"]
+            revision += 1
+            doc["design_revision"] = {"round": revision, "limit": limit, "started_at": phase_started,
+                                      "finding_count": len(open_findings)}
+            with self._lock:
+                self._save(doc)
+            candidate = designer.generate(req, run_id=doc["run_id"], previous=design, findings=open_findings)
+            report = reviewer.review(req, candidate, run_id=doc["run_id"], previous_review=report)
+            design = candidate
+            doc["design"] = design.model_dump(mode="json")
+
+    @staticmethod
+    def _record_design_review(doc, report):
+        record = report.model_dump(mode="json")
+        doc["design_review"] = record
+        history = doc.setdefault("design_review_history", [])
+        if not any(row["review"]["review_id"] == report.review.review_id for row in history):
+            history.append(record)
 
     def _approve_design(self, doc, operation_id):
         req, design = self._admit(doc), Design.model_validate(doc["design"])
@@ -368,14 +502,25 @@ class WorkflowService:
         if doc["approvals"]["design"]["target"] != design.ref().model_dump(mode="json"):
             raise WorkflowError("设计批准目标不匹配")
         runner = self._runner(doc)
-        outcome = PlanningWorkflow(LocalPlanner(runner), MomusPlanReviewer(runner=runner)).run(req, design)
-        doc["plan"] = outcome.plan.model_dump(mode="json")
-        doc["plan_review"] = outcome.review.model_dump(mode="json")
+        saved = Plan.model_validate(doc["plan"]) if doc.get("plan") else None
+        review = Review.model_validate(doc["plan_review"]) if doc.get("plan_review") else None
+        if saved and review and review.target == saved.ref() and review.reviewer == "Momus" and review.verdict == "passed":
+            validate_executable_plan(saved)
+            PlanService().prepare(req, design, saved)
+            doc["acceptance"] = generate_acceptance(runner, req, design, saved)
+            doc["stage"] = "plan_pending_approval"
+            return
+        planner = LocalPlanner(runner, previous=saved, findings=review.findings if review else None)
+        outcome = PlanningWorkflow(planner, MomusPlanReviewer(runner=runner)).run(req, design)
         if outcome.status != "passed":
+            doc["plan"] = outcome.plan.model_dump(mode="json")
+            doc["plan_review"] = outcome.review.model_dump(mode="json")
             doc["stage"] = "plan_review_blocked"
             return
         validate_executable_plan(outcome.plan)
         PlanService().prepare(req, design, outcome.plan)
+        doc["plan"] = outcome.plan.model_dump(mode="json")
+        doc["plan_review"] = outcome.review.model_dump(mode="json")
         doc["acceptance"] = generate_acceptance(runner, req, design, outcome.plan)
         doc["stage"] = "plan_pending_approval"
 
@@ -448,19 +593,26 @@ class WorkflowService:
                     doc["stage"] = "awaiting_acceptance"
                     return
                 scheduler.reconcile()
-                ready = scheduler.ready()
-                if not ready:
+                verifying = next((task.task_id for task in unfinished
+                                  if runtime.ctx.state_of(task.task_id) == "verifying"
+                                  and scheduler.attempt_for(task.task_id)), None)
+                if verifying:
+                    task_id = verifying
+                    attempt = scheduler.attempt_for(task_id)
+                else:
+                    ready = scheduler.ready()
+                    if not ready:
+                        runtime.persist()
+                        doc["stage"] = "execution_blocked"
+                        doc["error"] = {"code": "TASKS_BLOCKED", "message": "有任务失败或等待核对，请查看执行证据及运行控制台。"}
+                        return
+                    task_id = ready[0]
+                    if scheduler.dispatch(task_id, executor) is None:
+                        raise WorkflowError("任务未取得执行许可")
+                    attempt = scheduler.attempt_for(task_id)
                     runtime.persist()
-                    doc["stage"] = "execution_blocked"
-                    doc["error"] = {"code": "TASKS_BLOCKED", "message": "有任务失败或等待核对，请查看执行证据及运行控制台。"}
-                    return
-                task_id = ready[0]
-                if scheduler.dispatch(task_id, executor) is None:
-                    raise WorkflowError("任务未取得执行许可")
-                attempt = scheduler.attempt_for(task_id)
-                runtime.persist()
             receipt = executor.wait(attempt, timeout=605)
-            status, reason = service.collect(task_id, receipt.attempt_id)
+            status, reason = service.collect(task_id, receipt.attempt_id, retry_review=bool(verifying))
             with runtime.lock, scheduler._lock:
                 runtime.persist()
                 projected = service.project(task_id, receipt.attempt_id)

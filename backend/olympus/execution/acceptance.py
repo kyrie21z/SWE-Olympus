@@ -34,11 +34,12 @@ class ArtifactAcceptanceService:
                 self.scheduler.register_incident(task_id, "outcome_unknown", "cancellation needs reconciliation")
         return receipt
 
-    def collect(self, task_id: str, attempt_id: str, *, review_id: str | None = None) -> tuple[str, str]:
+    def collect(self, task_id: str, attempt_id: str, *, review_id: str | None = None,
+                retry_review: bool = False) -> tuple[str, str]:
         with self._collect_lock:
-            return self._collect(task_id, attempt_id, review_id=review_id)
+            return self._collect(task_id, attempt_id, review_id=review_id, retry_review=retry_review)
 
-    def _collect(self, task_id: str, attempt_id: str, *, review_id=None) -> tuple[str, str]:
+    def _collect(self, task_id: str, attempt_id: str, *, review_id=None, retry_review=False) -> tuple[str, str]:
         scheduler = self.scheduler
         receipt = self.executor.query_receipt(attempt_id)
         with scheduler._lock:
@@ -99,7 +100,9 @@ class ArtifactAcceptanceService:
                     return "rejected", str(exc)
             else:
                 previous = self._review_requests(receipt)
-                if previous:
+                if previous and (not retry_review or any(
+                    entry.status in {"prepared", "sent", "outcome_unknown"} for entry in previous
+                )):
                     return "pending", "existing independent-review request needs reconciliation or explicit retry"
                 try:
                     with self.executor.model_budget(self.reviewer.runner) as budget:

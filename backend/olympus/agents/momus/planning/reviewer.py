@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Iterable, Literal
 
+from olympus.agents.momus.design.reviewer import review_output_schema
+
 from olympus.agents.runtime import AgentRunner, OutputSchemaError, RolePermissions, RoleRunInput
 from olympus.contracts.models import (
     Contract,
@@ -162,6 +164,7 @@ class MomusPlanReviewer:
             raise OutputSchemaError(f"invalid semantic review: {exc}") from exc
 
     def _run_agent(self, plan: Plan, req: Requirement, ds: Design):
+        schema = review_output_schema(SemanticFinding)
         manifest = {
             "prompt": (
                 "You are Momus, independent plan reviewer. Compare the full requirement, design and tasks; "
@@ -176,14 +179,7 @@ class MomusPlanReviewer:
             "design_content": ds.content,
             "plan": plan.ref().model_dump(mode="json"),
             "tasks": [task.model_dump(mode="json") for task in plan.tasks],
-            "output_schema": {
-                "type": "object",
-                "required": ["verdict", "findings"],
-                "properties": {
-                    "verdict": {"enum": ["passed", "blocked", "needs_revision"]},
-                    "findings": {"type": "array", "items": SemanticFinding.model_json_schema()},
-                },
-            },
+            "output_schema": schema,
         }
         result = self.runner.run(
             RoleRunInput(
@@ -193,6 +189,7 @@ class MomusPlanReviewer:
                 task_id=plan.object_id,
                 input_manifest=manifest,
                 input_refs=[req.ref(), ds.ref(), plan.ref()],
+                output_schema=schema if self.runner.provider.mode == "real_model" else {},
                 permissions=RolePermissions(
                     role_id=MOMUS,
                     allowed_task_kinds=[REVIEW_TASK_KIND],

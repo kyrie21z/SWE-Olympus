@@ -123,7 +123,7 @@ health 返回 ok 只表示基础服务正常。初次体验可直接导入库存
 
 [.env.example](.env.example)中的OLYMPUS_MODE、OLYMPUS_DB属于后续接入约定，启动壳没有自动加载.env。离线演示无需该文件。
 
-网页可分别配置 Athena、Daedalus、Momus、Hephaestus、Argus、Hermes 的 API 根地址、模型、密钥及超时，配置保存在本地后端。脚本使用的 RealProvider 也可通过环境变量或构造参数提供 `OLYMPUS_MODEL_API_KEY`、`OLYMPUS_MODEL_BASE_URL`、`OLYMPUS_MODEL_NAME`。BASE_URL 应为模型 API 根路径，适配器追加 /chat/completions。网页没有完整模型配置时默认使用匹配的离线样例。凭据不得提交到仓库。
+网页可分别配置 Athena、Daedalus、Momus、Hephaestus、Argus、Hermes 的 API 根地址、模型、密钥及超时，配置保存在本地后端。可从提供方返回的模型列表选择 ID，也可手动填写。脚本使用的 RealProvider 可通过环境变量或构造参数提供 `OLYMPUS_MODEL_API_KEY`、`OLYMPUS_MODEL_BASE_URL`、`OLYMPUS_MODEL_NAME`。BASE_URL 应为模型 API 根路径，适配器追加 `/chat/completions`。工作台建立运行时可选择“离线样例”或“在线 Agent”。凭据不得提交到仓库。
 
 <a id="file-input"></a>
 

@@ -52,10 +52,23 @@ def validate_check(source: str, scopes: list[str]) -> None:
 def generate_acceptance(runner, requirement, design, plan) -> dict[str, dict]:
     """Momus receives approved semantics, never implementation or its self-evaluation."""
     scopes = sorted({scope for task in plan.tasks for scope in task.write_scope})
+    schema = {
+        "type": "object", "additionalProperties": False, "required": ["tasks"], "properties": {
+            "tasks": {"type": "array", "minItems": len(plan.tasks), "maxItems": len(plan.tasks), "items": {
+                "type": "object", "additionalProperties": False, "required": ["task_id", "checks"],
+                "properties": {
+                    "task_id": {"type": "string", "enum": [task.task_id for task in plan.tasks]},
+                    "checks": {"type": "object", "minProperties": 1,
+                               "additionalProperties": {"type": "string"}},
+                },
+            }},
+        },
+    }
     manifest = {
         "requirement_content": requirement.content,
         "design_content": design.content,
         "tasks": [task.model_dump(mode="json") for task in plan.tasks],
+        "output_schema": schema,
         "prompt": (
             "Momus: independently write executable Python acceptance checks BEFORE implementation. "
             "Return ONLY JSON {tasks:[{task_id:string,checks:{check_id:Python_source}}]}. "
@@ -75,7 +88,8 @@ def generate_acceptance(runner, requirement, design, plan) -> dict[str, dict]:
     def validate(output):
         rows = output.get("tasks")
         if not isinstance(rows, list) or len(rows) != len(plan.tasks):
-            raise OutputSchemaError("acceptance must cover every task exactly once")
+            raise OutputSchemaError("acceptance must cover every task exactly once",
+                                    hint="验收结果需为当前计划的每个任务各提供一条记录。")
         found = {}
         tasks = {task.task_id: task for task in plan.tasks}
         for row in rows:
@@ -86,6 +100,9 @@ def generate_acceptance(runner, requirement, design, plan) -> dict[str, dict]:
                 raise OutputSchemaError("unknown or duplicate acceptance task")
             for script in row["checks"].values():
                 validate_check(script, scopes)
+            if set(row["checks"]) != set(task.checks):
+                raise OutputSchemaError("acceptance check names differ from the task card",
+                                        hint="checks 的键必须与各任务卡声明的检查 ID 完全一致。")
             found[task.task_id] = FrozenAcceptance.freeze(task, row["checks"]).model_dump(mode="json")
         return found
 
@@ -93,6 +110,7 @@ def generate_acceptance(runner, requirement, design, plan) -> dict[str, dict]:
         role_id="Momus", task_kind="acceptance_definition", task_id=plan.object_id,
         logical_task_id=f"acceptance-{plan.object_id[:100]}",
         input_manifest=manifest, input_refs=[requirement.ref(), design.ref(), plan.ref()],
+        output_schema=schema,
         idempotency_key="acceptance-" + fingerprint({"plan": plan.ref().model_dump(mode="json")}),
         permissions=RolePermissions(role_id="Momus", allowed_task_kinds=["acceptance_definition"],
                                     allowed_input_keys=list(manifest)),
@@ -102,10 +120,12 @@ def generate_acceptance(runner, requirement, design, plan) -> dict[str, dict]:
 
 def validate_executable_plan(plan) -> None:
     if len(plan.tasks) > 30:
-        raise OutputSchemaError("local workflow allows at most 30 tasks per plan")
+        raise OutputSchemaError("local workflow allows at most 30 tasks per plan",
+                                hint="单个计划最多包含 30 项任务。")
     for raw in plan.tasks:
         task = Task.model_validate(raw.model_dump(mode="json"))
         implementation = task.executor == "Hephaestus" and task.type in {"interface", "implement"}
         read_only = task.executor in {"Momus", "Hermes"} and task.type in {"test", "integrate", "doc"}
         if task.reviewer != "Argus" or not (implementation or read_only):
-            raise OutputSchemaError("plan must use the registered local Python executor/reviewer profile")
+            raise OutputSchemaError("plan must use the registered local Python executor/reviewer profile",
+                                    hint="接口和实现由 Hephaestus 执行，检查类由 Momus 或 Hermes 执行，复核者为 Argus。")

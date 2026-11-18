@@ -68,6 +68,7 @@ class DaedalusPlanner:
         definitions = task.pop("$defs", {})
         return {
             "type": "object",
+            "additionalProperties": False,
             "required": ["tasks"],
             "properties": {"tasks": {"type": "array", "minItems": 1, "items": task}},
             "$defs": definitions,
@@ -161,15 +162,23 @@ class DaedalusPlanner:
         except (ValidationError, ValueError, TypeError) as exc:
             raise OutputSchemaError(f"invalid plan proposal: {exc}") from exc
 
-    def _plan_via_runner(self, req: Requirement, ds: Design) -> Plan:
+    def _plan_via_runner(self, req: Requirement, ds: Design, *, previous: Plan | None = None,
+                         findings: list[str] | None = None) -> Plan:
         manifest = self.build_input_manifest(req, ds)
+        refs = [req.ref(), ds.ref()]
+        if previous is not None:
+            refs.append(previous.ref())
+            manifest["previous_tasks"] = [task.semantic_content() for task in previous.tasks]
+            manifest["review_findings"] = findings or []
+            manifest["prompt"] += "\n逐项处理 review_findings，返回修订后的全部任务。保留未受影响任务的 ID。"
         run_input = RoleRunInput(
             role_id=self.role_id,
             task_kind=self.task_kind,
             logical_task_id=f"LOG-PLAN-{req.object_id}",
             task_id=f"PLAN-{req.object_id}",
             input_manifest=manifest,
-            input_refs=[req.ref(), ds.ref()],
+            input_refs=refs,
+            output_schema=self.draft_schema(),
             permissions=RolePermissions(
                 role_id=self.role_id,
                 allowed_task_kinds=[self.task_kind],
