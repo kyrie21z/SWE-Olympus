@@ -75,7 +75,7 @@ def execution_materials():
 
 
 @contextmanager
-def workflow_model_server(bundle, *, failure_status=None, block=None):
+def workflow_model_server(bundle, *, failure_status=None, block=None, transform=None):
     changes, checks = execution_materials()
     calls = []
 
@@ -112,6 +112,8 @@ def workflow_model_server(bundle, *, failure_status=None, block=None):
                 output = {"changes": changes[manifest["task"]["task_id"]]}
             else:
                 output = {"verdict": "passed", "findings": []}
+            if transform is not None:
+                output = transform(role, manifest, output)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -179,8 +181,26 @@ def configure_roles(client, url, *roles):
 
 
 def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(tmp_path, bundle):
+    argus_returns_invalid_format = True
+
+    def imperfect_output(role, manifest, output):
+        if role == "Athena" and not manifest.get("format_correction"):
+            return {"design": {**output["design"], "concurrency": ["expected a string"]}}
+        if role == "Momus" and manifest.get("plan", {}).get("version") == 1:
+            return {"verdict": "blocked", "findings": [{
+                "code": "UNCLEAR_TASK", "severity": "blocker", "task_id": "T01", "message": "Make T01 more explicit.",
+            }]}
+        if role == "Daedalus" and manifest.get("previous_tasks"):
+            tasks = output["tasks"]
+            return {"tasks": [{**tasks[0], "goal": "明确生成报名状态接口约定"}, *tasks[1:]]}
+        if role == "Momus" and "tasks" in output and not manifest.get("format_correction"):
+            return {"tasks": []}
+        if role == "Argus" and argus_returns_invalid_format:
+            return {"verdict": "passed", "findings": "invalid format"}
+        return output
+
     database = tmp_path / "state.sqlite3"
-    with workflow_model_server(bundle) as (url, calls):
+    with workflow_model_server(bundle, transform=imperfect_output) as (url, calls):
         with TestClient(create_app(store=Store(database))) as client:
             for role in ("Athena", "Daedalus", "Momus", "Hephaestus", "Argus", "Hermes"):
                 configured = client.put(f"/api/settings/agents/{role}", json={
@@ -196,8 +216,21 @@ def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(t
             action(client, workflow_id, "approve_design", "design_approved")
             planned = action(client, workflow_id, "generate_plan", "plan_pending_approval")
             assert len(planned["plan"]["tasks"]) == len(planned["acceptance"]) == 8
+            assert planned["plan"]["version"] == 2
+            assert planned["plan"]["tasks"][0]["version"] == 2
+            assert "concurrency" in [call for call in calls if call["role"] == "Athena"][1]["manifest"]["format_correction"]
+            assert [call for call in calls if call["role"] == "Daedalus"][1]["manifest"]["review_findings"]
             action(client, workflow_id, "approve_plan", "plan_approved")
-            executed = action(client, workflow_id, "execute", "awaiting_acceptance")
+            blocked = action(client, workflow_id, "execute", "execution_blocked")
+            first_attempt = blocked["executions"][0]["execution"]["attempt_id"]
+            assert blocked["snapshot"]["tasks"][0]["state"] == "verifying"
+            argus_returns_invalid_format = False
+            assert client.post(f"/api/workflows/{workflow_id}/actions", json={
+                "action": "execute", "operation_id": "resume-argus-review",
+            }).status_code == 200
+            executed = wait_for_stage(client, workflow_id, "awaiting_acceptance")
+            first_result = next(row for row in executed["executions"] if row["task_id"] == "T01")
+            assert first_result["execution"]["attempt_id"] == first_attempt
             assert len(executed["executions"]) == 8
             assert all(task["state"] == "accepted" for task in executed["snapshot"]["tasks"])
             assert all(task["verification_status"] == "passed" for task in executed["snapshot"]["tasks"])
@@ -216,7 +249,7 @@ def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(t
             assert "local-secret" not in view.text + evidence.text + json.dumps(completed)
             assert {call["role"] for call in calls} == {"Athena", "Daedalus", "Momus", "Hephaestus", "Argus"}
             assert len([call for call in calls if call["role"] == "Hephaestus"]) == 5
-            assert len([call for call in calls if call["role"] == "Argus"]) == 8
+            assert len([call for call in calls if call["role"] == "Argus"]) == 10
             assert all(call["path"] == "/v1/chat/completions" for call in calls)
             calls_before_restart = len(calls)
             snapshot_before_restart = completed["snapshot"]
@@ -240,6 +273,73 @@ def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(t
             assert len(calls) == calls_before_restart
             capabilities = restarted.get("/api/capabilities").json()
             assert capabilities["durability"] == "sqlite"
+
+
+def test_design_schema_error_identifies_step_and_keeps_approved_requirement(tmp_path, bundle):
+    def wrong_type(role, manifest, output):
+        if role == "Athena":
+            return {"design": {**output["design"], "concurrency": {"private": "hidden-provider-body"}}}
+        return output
+
+    with workflow_model_server(bundle, transform=wrong_type) as (url, calls):
+        with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
+            configure_roles(client, url, "Athena", "Momus")
+            workflow_id = create(client, bundle.requirement)["workflow_id"]
+            action(client, workflow_id, "approve_requirement", "requirement_approved")
+            failed = action(client, workflow_id, "generate_design", "error")
+            assert failed["error"]["code"] == "OUTPUT_SCHEMA_ERROR"
+            assert failed["error"]["action"] == "generate_design"
+            assert "Athena" in failed["error"]["message"] and "concurrency" in failed["error"]["message"]
+            assert "hidden-provider-body" not in json.dumps(failed)
+            assert "requirement" in failed["approvals"]
+            assert failed["allowed_actions"] == ["generate_design"]
+            assert len(calls) == failed["snapshot"]["calls_used"] == 2
+
+
+def test_design_recheck_keeps_real_issues_and_requires_verbatim_evidence(tmp_path, bundle):
+    element = bundle.design.content["elements"][0]
+    source = element["sources"][0]
+    quote = "同一账号重复提交只保留原报名记录，返回原状态。"
+    corrected = False
+
+    def respond(role, manifest, output):
+        nonlocal corrected
+        if role == "Athena" and manifest.get("previous_design"):
+            assert manifest["findings"] == [f"{source}: missing failure case."]
+            corrected = True
+        if role == "Athena":
+            design = output["design"]
+            elements = [{**element, "acceptance_method": quote}, *design["elements"][1:]]
+            return {"design": {**design, "elements": elements}}
+        if role == "Momus" and "design_content" in manifest and "plan" not in manifest and not corrected:
+            return {"verdict": "blocked", "findings": [
+                {"code": "FALSE_OMISSION", "severity": "blocker", "message": f"{source}: existing behavior omitted."},
+                {"code": "MISSING_FAILURE", "severity": "blocker", "message": f"{source}: missing failure case."},
+            ]}
+        if role == "Momus" and "findings" in manifest:
+            return {"decisions": [
+                {"finding_id": finding["finding_id"], "decision": "already_covered", "requirement_id": source,
+                 "element_id": element["id"], "section": "acceptance_method",
+                 "quote": quote if index == 0 else "invented quote that is not in the design"}
+                for index, finding in enumerate(manifest["findings"])
+            ]}
+        return output
+
+    with workflow_model_server(bundle, transform=respond) as (url, calls):
+        with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
+            configure_roles(client, url, "Athena", "Momus")
+            workflow_id = create(client, bundle.requirement)["workflow_id"]
+            action(client, workflow_id, "approve_requirement", "requirement_approved")
+            designed = action(client, workflow_id, "generate_design", "design_pending_approval")
+            assert designed["design"]["version"] == 2
+            assert corrected
+            original, checked, current = designed["design_review_history"]
+            assert original["submission"]["findings"][0]["status"] == "open"
+            assert checked["submission"]["findings"][0]["status"] == "closed"
+            assert quote in checked["submission"]["findings"][0]["closure_reason"]
+            assert checked["submission"]["findings"][1]["status"] == "open"
+            assert current["review"]["verdict"] == "passed"
+            assert len([call for call in calls if "findings" in call["manifest"] and call["role"] == "Momus"]) == 1
 
 
 def test_workflow_requires_gates_and_reports_missing_roles_in_online_mode(tmp_path, bundle):
@@ -313,7 +413,7 @@ def test_human_gates_and_changed_operation_are_rejected_without_model_calls(tmp_
 def test_unknown_provider_outcome_holds_budget_and_forbids_blind_retry(tmp_path, bundle):
     with workflow_model_server(bundle, failure_status=503) as (url, calls):
         with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
-            configure_roles(client, url, "Athena")
+            configure_roles(client, url, "Athena", "Momus")
             initial = create(client, bundle.requirement)
             workflow_id = initial["workflow_id"]
             action(client, workflow_id, "approve_requirement", "requirement_approved")
@@ -360,9 +460,10 @@ from olympus.storage.sqlite import Store
 
 database, base_url, requirement_file, marker, output = sys.argv[1:]
 with TestClient(create_app(store=Store(database))) as client:
-    configured = client.put('/api/settings/agents/Athena', json={
-        'base_url': base_url, 'model': 'local-Athena', 'api_key': 'child-only-key'})
-    assert configured.status_code == 200
+    for role in ('Athena', 'Momus'):
+        configured = client.put('/api/settings/agents/' + role, json={
+            'base_url': base_url, 'model': 'local-' + role, 'api_key': 'child-only-key'})
+        assert configured.status_code == 200
     created = client.post('/api/workflows', json={
         'requirement': json.loads(Path(requirement_file).read_text(encoding='utf-8')),
         'allow_synthetic': True})

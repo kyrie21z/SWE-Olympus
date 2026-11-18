@@ -22,15 +22,22 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_default_offline_runs_builtin_requirement_to_acceptance(tmp_path, fixture, task_count):
     req = Requirement.model_validate_json((ROOT / fixture).read_text(encoding="utf-8"))
     with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
+        configured = client.put("/api/settings/agents/Athena", json={
+            "base_url": "http://127.0.0.1:1/v1", "model": "unused", "api_key": "test-only",
+        })
+        assert configured.json()["configured"] is True
         initial = create(client, req)
         assert initial["model_mode"] == "offline"
+        assert initial["offline_supported"] is True
+        assert initial["plan_bound"] is False
         workflow_id = initial["workflow_id"]
         action(client, workflow_id, "approve_requirement", "requirement_approved")
         designed = action(client, workflow_id, "generate_design", "design_pending_approval")
         assert designed["design_review"]["review"]["mode"] == "mock"
         action(client, workflow_id, "approve_design", "design_approved")
         action(client, workflow_id, "generate_plan", "plan_pending_approval")
-        action(client, workflow_id, "approve_plan", "plan_approved")
+        approved = action(client, workflow_id, "approve_plan", "plan_approved")
+        assert approved["plan_bound"] is True
         action(client, workflow_id, "execute", "awaiting_acceptance")
         final = action(client, workflow_id, "accept_run", "completed")
         assert final["snapshot"]["mode"] == "real_tool"
@@ -39,7 +46,7 @@ def test_default_offline_runs_builtin_requirement_to_acceptance(tmp_path, fixtur
         assert all(item["execution"]["tool_invocations"] > 0 for item in final["executions"])
         if task_count == 4:
             outputs = final["executions"][-1]["execution"]["check_outputs"]
-            assert "Ran 7 tests" in outputs[0]["output"]
+            assert "Ran 9 tests" in outputs[0]["output"]
         view = client.get(f"/api/runs/{initial['run_id']}/view").json()
         assert view["projection"]["progress"]["accepted"] == task_count
         assert all(row["accepted"] for row in view["trace"]["rows"])

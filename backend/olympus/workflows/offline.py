@@ -52,8 +52,10 @@ def inventory_profile(req):
         "interaction": "先创建商品，再预占、确认或取消订单，通过快照检查实际库存。",
         "decisions": ["相同参数的重复订单返回原状态。", "失败请求不占用订单编号。"],
         "elements": [
-            element("D-STOCK", stock, "SKU 唯一、拒绝非法参数，返回独立库存和订单快照。", "边界与隔离检查"),
-            element("D-ORDER", orders, "维护订单的原子迁移、幂等及库存守恒。", "状态、失败与并发验收"),
+            element("D-STOCK", stock, "SKU 唯一、严格区分大小写，内部库存无法通过公开接口直接改写。",
+                    "核对边界、成功返回结构、快照隔离和并发查询期间的库存守恒。"),
+            element("D-ORDER", orders, "维护订单的原子迁移、幂等及库存守恒。",
+                    "重复确认和重复取消均返回原订单且库存不变；未知订单返回 ORDER_NOT_FOUND。核对失败后复用编号与并发竞争。"),
         ],
     }
     tasks = [
@@ -63,7 +65,7 @@ def inventory_profile(req):
         task(4, "test", "执行完整库存验收及并发检查", [*all_ids, "D-STOCK", "D-ORDER"], "reports", 3),
     ]
     source = (INVENTORY / "offline_inventory.py").read_text(encoding="utf-8")
-    stock_source, mark, _ = source.partition("    def reserve(")
+    stock_source, mark, _ = source.partition("        def reserve(")
     if not mark:
         raise ValueError("offline inventory fixture is missing its order implementation")
     checks = [
@@ -87,7 +89,8 @@ def inventory_profile(req):
             {"path": "inventory/service.py", "content": source},
             {"path": "inventory/README.md", "content": "# 库存预占系统\n\n"
              "在 Python 3.12 及以上使用 `from inventory.service import InventoryService`。"
-             "自动验收由工作台运行，逐项名称和结果可在 T04 的检查输出查看。\n"},
+             "在工作台查看 T04 的逐项验收结果。若需单独复验，把计划中 T04 的冻结脚本保存为 "
+             "`inventory_checks.py`，在包含 `inventory` 目录的工件根目录运行 `python inventory_checks.py`。\n"},
         ],
     }
     return design, tasks, checks, changes
@@ -135,8 +138,16 @@ def documents_profile():
     return design, tasks, checks, changes
 
 
+def _binding(requirement):
+    return requirement.object_id, requirement.version, requirement.content_hash
+
+
+def supports_offline(requirement):
+    return _binding(requirement) in {INVENTORY_BINDING, DOCUMENTS_BINDING}
+
+
 def make_offline_runner(requirement, *, ledger):
-    binding = (requirement.object_id, requirement.version, requirement.content_hash)
+    binding = _binding(requirement)
     if binding == INVENTORY_BINDING:
         design, tasks, checks, changes = inventory_profile(requirement)
     elif binding == DOCUMENTS_BINDING:

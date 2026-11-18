@@ -196,7 +196,7 @@ class AgentRunner:
             )
             if isinstance(exc, RunnerPermissionError):
                 raise RunnerPermissionError(str(exc)) from exc
-            raise OutputSchemaError(str(exc)) from exc
+            raise
 
         attempt = self.ledger.to_attempt(last_entry.request_id)
         saved = self._save_record(

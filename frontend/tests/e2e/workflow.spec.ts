@@ -15,6 +15,10 @@ test("agent API settings keep role configurations independent and keys out of br
     if (route.request().method() === "GET") return route.fulfill({json:{agents:Object.values(settings)}});
     if (path.endsWith("/test")) {tested.push(role); return route.fulfill({json:{ok:true,message:"连接成功"}});}
     const body = route.request().postDataJSON();
+    if (path.endsWith("/models")) {
+      expect(body).toEqual({base_url:"https://provider.example/v1",api_key:"test-secret-never-store"});
+      return route.fulfill({json:{models:["design-model"]}});
+    }
     saved.push(role);
     settings[role] = {...settings[role],base_url:body.base_url,model:body.model,timeout_seconds:body.timeout_seconds,has_api_key:Boolean(body.api_key) || settings[role].has_api_key,configured:true};
     return route.fulfill({json:settings[role]});
@@ -22,16 +26,26 @@ test("agent API settings keep role configurations independent and keys out of br
   await page.goto("/#agents");
   const athena = page.getByTestId("agent-settings-Athena");
   await athena.getByLabel("API 根地址").fill("https://provider.example/v1");
-  await athena.getByLabel("模型名称").fill("design-model");
   await athena.getByLabel("API Key", {exact:true}).fill("test-secret-never-store");
+  await athena.getByRole("button", {name:"获取模型列表"}).click();
+  const modelPicker = athena.getByRole("combobox", {name:"从模型列表选择"});
+  await modelPicker.click();
+  await modelPicker.press("ArrowDown");
+  await modelPicker.press("Enter");
+  await expect(athena.getByLabel("模型名称")).toHaveValue("design-model");
   await athena.getByRole("button", {name:"保存配置"}).click();
   await expect(athena.getByText("已配置", {exact:true})).toBeVisible();
   await expect(athena.getByLabel("API Key", {exact:true})).toHaveValue("");
   await athena.getByRole("button", {name:"测试连接"}).click();
   await expect(athena.getByText("连接成功", {exact:true})).toBeVisible();
+  await expect(athena.getByText("使用已保存密钥。这是短请求测试。", {exact:true})).toBeVisible();
+  await athena.getByLabel("模型名称").fill("modified-model");
+  await expect(athena.getByText("连接成功", {exact:true})).toHaveCount(0);
+  await expect(athena.getByRole("button", {name:"测试连接"})).toBeDisabled();
   expect(saved).toEqual(["Athena"]);
   expect(tested).toEqual(["Athena"]);
   await expect(page.getByTestId("agent-settings-Argus").getByText("未配置", {exact:true})).toBeVisible();
+  await expect(page.getByTestId("agent-settings-Argus").getByRole("button", {name:"测试连接"})).toBeDisabled();
   expect(await page.evaluate(() => JSON.stringify({local:{...localStorage},session:{...sessionStorage}}))).not.toContain("test-secret-never-store");
   await page.reload();
   await expect(athena.getByLabel("模型名称")).toHaveValue("design-model");
@@ -57,6 +71,7 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
     const body = request.postDataJSON();
     if (!request.url().endsWith("/actions")) {
       expect(body.allow_synthetic).toBe(true);
+      expect(body.model_mode).toBe("offline");
       expect(body.requirement.object_id).toBe(example.object_id);
       created = true;
       return route.fulfill({json:view()});
@@ -72,8 +87,11 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   await page.getByRole("button", {name:"保存导入并查看"}).click();
   await expect(page.getByRole("button", {name:"建立运行并核验需求"})).toBeDisabled();
   await page.getByLabel("允许将这份构造样例用于测试运行").check();
+  await expect(page.getByRole("button", {name:"建立运行并核验需求"})).toBeDisabled();
+  await page.getByRole("radio", {name:"离线样例"}).check();
   await page.getByRole("button", {name:"建立运行并核验需求"}).click();
   await expect(page.getByTestId("workflow-stage")).toHaveText("等待需求接纳");
+  await expect(page.getByRole("link", {name:"查看此运行控制台"})).toHaveCount(0);
   expect(created).toBe(true); expect(actions).toEqual([]);
   await page.getByRole("button", {name:"接纳此需求用于当前运行"}).click();
   await page.getByRole("button", {name:"生成设计规格",exact:true}).click();
@@ -99,6 +117,23 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   expect(actions).toEqual(["approve_requirement","generate_design","approve_design","generate_plan","approve_plan","execute","accept_run"]);
 });
 
+test("the console handles missing and unapproved runs as empty states", async ({page}) => {
+  let calls = 0;
+  await page.route("**/api/runs/*/view", async route => {
+    calls++;
+    const waiting = new URL(route.request().url()).pathname.includes("RUN-waiting");
+    return route.fulfill({status: waiting ? 409 : 404, json:{error:{code: waiting ? "PLAN_NOT_BOUND" : "RUN_NOT_FOUND", message:"unavailable"}}});
+  });
+  await page.goto("/#console");
+  await expect(page.getByText("尚未选择运行")).toBeVisible();
+  expect(calls).toBe(0);
+  await page.goto("/?run=RUN-waiting#console");
+  await expect(page.getByText("任务计划尚未批准")).toBeVisible();
+  await expect(page.getByRole("link", {name:"返回工作台"})).toBeVisible();
+  await page.goto("/?run=RUN-missing#console");
+  await expect(page.getByText("找不到这次运行")).toBeVisible();
+});
+
 test("an unknown model outcome remains blocked without a blind retry action", async ({page}) => {
   let actions = 0;
   await page.route("**/api/workflows**", async route => {
@@ -109,6 +144,7 @@ test("an unknown model outcome remains blocked without a blind retry action", as
   await page.locator('input[type="file"]').setInputFiles({name:"unknown.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(example))});
   await page.getByRole("button", {name:"保存导入并查看"}).click();
   await page.getByLabel("允许将这份构造样例用于测试运行").check();
+  await page.getByRole("radio", {name:"在线 Agent"}).check();
   await page.getByRole("button", {name:"建立运行并核验需求"}).click();
   await expect(page.getByText("OUTCOME_UNKNOWN：提供方结果未知，请先核对", {exact:true})).toBeVisible();
   await expect(page.getByRole("button", {name:"重试当前阶段"})).toHaveCount(0);

@@ -25,15 +25,21 @@ export type WorkflowStage =
   | "awaiting_acceptance" | "completed" | "error";
 export type WorkflowAction = "approve_requirement" | "generate_design" | "approve_design"
   | "generate_plan" | "approve_plan" | "execute" | "accept_run";
+export type WorkflowModelPreference = "auto" | "offline" | "online";
 export interface WorkflowSnapshot {
   workflow_id: string;
   run_id: string;
   stage: WorkflowStage;
   model_mode?: "offline" | "online";
-  error: { code: string; message: string } | null;
+  plan_bound?: boolean;
+  offline_supported?: boolean;
+  pending_model_role?: AgentRole | null;
+  updated_at?: string;
+  error: { code: string; message: string; action?: WorkflowAction | null } | null;
   requirement: Requirement;
   design: Design | null;
   design_review: unknown;
+  design_review_history?: unknown[];
   plan: Plan | null;
   plan_review: unknown;
   acceptance?: Record<string, unknown>;
@@ -73,14 +79,21 @@ export class WorkflowClient {
   saveAgent(role: AgentRole, update: AgentSettingUpdate): Promise<AgentSetting> {
     return this.request(`/api/settings/agents/${encodeURIComponent(role)}`, {method: "PUT", body: JSON.stringify(update)});
   }
-  testAgent(role: AgentRole): Promise<{ok: boolean; message: string}> {
+  testAgent(role: AgentRole): Promise<{ok: boolean; message: string; model?: string; elapsed_ms?: number | null}> {
     return this.request(`/api/settings/agents/${encodeURIComponent(role)}/test`, {method: "POST"});
   }
-  create(requirement: Requirement, allowSynthetic: boolean): Promise<WorkflowSnapshot> {
-    return this.request("/api/workflows", {method: "POST", body: JSON.stringify({requirement, allow_synthetic: allowSynthetic})});
+  listModels(role: AgentRole, baseUrl: string, key: string): Promise<{models: string[]}> {
+    return this.request(`/api/settings/agents/${encodeURIComponent(role)}/models`, {
+      method: "POST", signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify({base_url: baseUrl.trim(), ...(key.trim() ? {api_key: key.trim()} : {})}),
+    });
+  }
+  create(requirement: Requirement, allowSynthetic: boolean, modelMode: WorkflowModelPreference = "auto"): Promise<WorkflowSnapshot> {
+    return this.request("/api/workflows", {method: "POST", body: JSON.stringify({requirement, allow_synthetic: allowSynthetic, model_mode: modelMode})});
   }
   get(id: string, signal?: AbortSignal): Promise<WorkflowSnapshot> {
-    return this.request(`/api/workflows/${encodeURIComponent(id)}`, {signal});
+    const timeout = AbortSignal.timeout(12_000);
+    return this.request(`/api/workflows/${encodeURIComponent(id)}`, {signal: signal ? AbortSignal.any([signal, timeout]) : timeout});
   }
   action(id: string, action: WorkflowAction, operationId: string): Promise<WorkflowSnapshot> {
     return this.request(`/api/workflows/${encodeURIComponent(id)}/actions`, {method: "POST", body: JSON.stringify({action, operation_id: operationId})});
@@ -91,5 +104,6 @@ export const workflowClient = new WorkflowClient(import.meta.env?.VITE_API_BASE_
 
 export function describeApiError(error: unknown): string {
   if (error instanceof WorkflowApiError) return `${error.code}：${error.message}`;
+  if (error instanceof DOMException && error.name === "TimeoutError") return "请求超时，请稍后刷新。";
   return error instanceof Error ? error.message : "无法连接后端，请检查服务是否启动。";
 }

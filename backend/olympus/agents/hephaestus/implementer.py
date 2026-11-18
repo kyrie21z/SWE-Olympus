@@ -9,10 +9,19 @@ class HephaestusImplementer:
 
     def propose(self, task: Task, inputs: list[Ref], *, run_id: str, generation: int,
                 context: dict | None = None, budget: RunnerBudget | None = None):
+        schema = {
+            "type": "object", "additionalProperties": False, "required": ["changes"], "properties": {
+                "changes": {"type": "array", "minItems": 1, "maxItems": 30, "items": {
+                    "type": "object", "additionalProperties": False, "required": ["path", "content"],
+                    "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                }},
+            },
+        }
         manifest = {
             "task": task.model_dump(mode="json"),
             "inputs": [r.model_dump(mode="json") for r in inputs],
             "input_content": context or {},
+            "output_schema": schema,
             "prompt": (
                 "Hephaestus: implement only this authorized local Python task. Return JSON "
                 "{changes:[{path:relative_path,content:UTF8_source}]}. Use pure Python functions "
@@ -43,6 +52,7 @@ class HephaestusImplementer:
                 "inputs": [ref.model_dump(mode="json") for ref in inputs]}),
             fixture_key=f"Hephaestus:{task.task_id}",
             input_manifest=manifest, input_refs=inputs,
+            output_schema=schema,
             permissions=RolePermissions(role_id="Hephaestus", allowed_task_kinds=["implement"],
                                         allowed_input_keys=list(manifest),
                                         allowed_write_scopes=list(task.write_scope)),

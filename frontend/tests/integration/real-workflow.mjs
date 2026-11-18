@@ -3,8 +3,10 @@ import { chromium, expect as baseExpect } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const [baseUrl, modelUrl, requirementPath, outputDirectory] = process.argv.slice(2);
-if (!baseUrl || !modelUrl || !requirementPath || !outputDirectory) {
+const [baseUrl, modelUrl, requirementPath, outputDirectory, mode = "online"] = process.argv.slice(2);
+const offline = mode === "offline";
+const taskCount = offline ? 4 : 8;
+if (!baseUrl || (!offline && !modelUrl) || !requirementPath || !outputDirectory) {
   throw new Error("Expected frontend URL, local model URL, REQ path and evidence directory");
 }
 await mkdir(outputDirectory, { recursive: true });
@@ -42,34 +44,37 @@ async function clickStage(button, expected, timeout = 45_000) {
   await expect(page.getByTestId("workflow-stage")).toHaveText(expected, { timeout });
 }
 try {
-  // Five other roles were seeded via the real API into a temporary test database.
-  // Athena is configured and probed using the browser form itself.
-  await page.goto(`${baseUrl}/#agents`);
-  const athena = page.getByTestId("agent-settings-Athena");
-  await athena.getByLabel("API 根地址").fill(modelUrl);
-  await athena.getByLabel("模型名称").fill("local-Athena");
-  await athena.getByLabel("API Key", { exact: true }).fill("browser-test-key-Athena");
-  await athena.getByRole("button", { name: "保存配置", exact: true }).click();
-  await expect(athena.getByText("已配置", { exact: true })).toBeVisible();
-  await expect(athena.getByLabel("API Key", { exact: true })).toHaveValue("");
-  await athena.getByRole("button", { name: "测试连接", exact: true }).click();
-  await expect(athena.getByText("连接成功，模型已返回有效 JSON。", { exact: true })).toBeVisible();
-  await screenshot("agent-settings");
-  const browserStorage = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
-  expect(browserStorage).not.toContain("browser-test-key");
+  if (!offline) {
+    // Athena is configured and probed using the browser form itself.
+    await page.goto(`${baseUrl}/#agents`);
+    const athena = page.getByTestId("agent-settings-Athena");
+    await athena.getByLabel("API 根地址").fill(modelUrl);
+    await athena.getByLabel("模型名称").fill("local-Athena");
+    await athena.getByLabel("API Key", { exact: true }).fill("browser-test-key-Athena");
+    await athena.getByRole("button", { name: "保存配置", exact: true }).click();
+    await expect(athena.getByText("已配置", { exact: true })).toBeVisible();
+    await expect(athena.getByLabel("API Key", { exact: true })).toHaveValue("");
+    await athena.getByRole("button", { name: "测试连接", exact: true }).click();
+    await expect(athena.getByText("连接成功，模型已返回有效 JSON。", { exact: true })).toBeVisible();
+    await screenshot("agent-settings");
+    const browserStorage = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+    expect(browserStorage).not.toContain("browser-test-key");
+  }
 
   await page.goto(`${baseUrl}/`);
   await page.locator('input[type="file"]').setInputFiles(requirementPath);
   await expect(page.getByText("构造样例", { exact: true })).toBeVisible();
-  await page.getByLabel("项目名称").fill("真实后端八任务联调");
+  await page.getByLabel("项目名称").fill(offline ? "库存预占离线验收" : "真实后端八任务联调");
   await page.getByRole("button", { name: "保存导入并查看", exact: true }).click();
   await page.getByLabel("允许将这份构造样例用于测试运行").check();
+  await page.getByRole("radio", {name: offline ? "离线样例" : "在线 Agent"}).check();
   const createdResponse = page.waitForResponse(response =>
     new URL(response.url()).pathname === "/api/workflows" && response.request().method() === "POST");
   await page.getByRole("button", { name: "建立运行并核验需求", exact: true }).click();
   const created = await createdResponse;
   expect(created.status()).toBe(200);
   workflow = await created.json();
+  expect(workflow.model_mode).toBe(mode);
   await expect(page.getByTestId("workflow-stage")).toHaveText("等待需求接纳");
   await clickStage("接纳此需求用于当前运行", "需求已接纳");
   await clickStage("生成设计规格", "等待批准设计");
@@ -80,7 +85,8 @@ try {
   await clickStage("生成任务计划", "等待批准计划与验收检查");
   await expect(page.getByRole("button", { name: "批准计划与验收检查", exact: true })).toBeDisabled();
   await page.getByText("T01 · 1 项检查", { exact: true }).click();
-  await expect(page.getByText('assert set(states()) == {"CONFIRMED", "WAITLISTED", "CANCELLED"}', { exact: false })).toBeVisible();
+  const contractCheck = offline ? "assert len(METHODS) == 6" : 'assert set(states()) == {"CONFIRMED", "WAITLISTED", "CANCELLED"}';
+  await expect(page.getByText(contractCheck, { exact: false })).toBeVisible();
   await screenshot("frozen-acceptance");
   await page.getByLabel("我已审阅当前计划及冻结的验收检查").check();
   await clickStage("批准计划与验收检查", "计划已批准");
@@ -92,21 +98,22 @@ try {
   expect(finalResponse.status()).toBe(200);
   const completed = await finalResponse.json();
   expect(completed.stage).toBe("completed");
-  expect(completed.snapshot.tasks).toHaveLength(8);
+  expect(completed.snapshot.tasks).toHaveLength(taskCount);
   expect(completed.snapshot.tasks.every(task => task.state === "accepted" && task.verification_status === "passed")).toBe(true);
-  expect(completed.executions).toHaveLength(8);
+  expect(completed.executions).toHaveLength(taskCount);
   expect(completed.executions.every(item => item.execution.tool_invocations > 0)).toBe(true);
 
   await page.getByRole("link", { name: "查看此运行控制台", exact: true }).click();
   await expect(page.getByTestId("p6-console")).toBeVisible();
-  await expect(page.locator(".p6-stat-grid .ant-statistic-content").first()).toHaveText(/8\s*\/\s*8/);
-  await expect(page.locator("[data-p6-task]")).toHaveCount(8);
-  await expect(page.getByText("5 / 5 已验证", { exact: true })).toBeVisible();
-  const evidenceResponse = await page.request.get(`${baseUrl}/api/runs/${workflow.run_id}/executions/T03`);
+  await expect(page.locator(".p6-stat-grid .ant-statistic-content").first()).toHaveText(new RegExp(`${taskCount}\\s*/\\s*${taskCount}`));
+  await expect(page.locator("[data-p6-task]")).toHaveCount(taskCount);
+  if (!offline) await expect(page.getByText("5 / 5 已验证", { exact: true })).toBeVisible();
+  const evidenceResponse = await page.request.get(`${baseUrl}/api/runs/${workflow.run_id}/executions/${offline ? "T04" : "T03"}`);
   expect(evidenceResponse.status()).toBe(200);
   const execution = await evidenceResponse.json();
-  expect(execution.execution.model_mode).toBe("real_model");
+  expect(execution.execution.model_mode).toBe(offline ? "not_called" : "real_model");
   expect(execution.execution.check_outputs.every(check => check.exit_code === 0)).toBe(true);
+  if (offline) expect(execution.execution.check_outputs[0].output).toContain("Ran 9 tests");
   expect(pageErrors).toEqual([]);
   expect(apiResponses.filter(response => response.status >= 400)).toEqual([]);
   expect(actions).toEqual(["approve_requirement", "generate_design", "approve_design", "generate_plan", "approve_plan", "execute", "accept_run"]);
@@ -114,8 +121,8 @@ try {
   await writeFile(path.join(outputDirectory, "executions.json"), JSON.stringify(completed.executions, null, 2));
   const report = {
     passed: true, workflow_id: workflow.workflow_id, run_id: workflow.run_id,
-    actions, tasks: { accepted: 8, required: 8 }, api_replay: false,
-    provider: "real-http-to-local-scripted-model", online_model_evaluated: false,
+    actions, tasks: { accepted: taskCount, required: taskCount }, api_replay: false,
+    provider: offline ? "offline-requirement-fixtures" : "real-http-to-local-scripted-model", online_model_evaluated: false,
     tools: "real-python-subprocess", browser: process.env.PLAYWRIGHT_CHANNEL || "chromium",
     page_errors: pageErrors, api_responses: apiResponses, screenshots,
   };

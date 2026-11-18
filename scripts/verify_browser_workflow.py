@@ -8,6 +8,7 @@ to .olympus; all fake keys, runtime files and test data stay in a temporary data
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from datetime import UTC, datetime
 import importlib.util
 import json
@@ -67,6 +68,7 @@ def wait_http(url, *, process=None, thread=None, timeout=30):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--mode", choices=("online", "offline"), default="online")
     args = parser.parse_args()
     output = (args.output or ROOT / ".olympus" / (
         "browser-workflow-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:6]
@@ -86,7 +88,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix="runtime-", dir=output) as temporary:
         temporary = Path(temporary)
         req_path = temporary / "requirement.json"
-        req_path.write_text(bundle.requirement.model_dump_json(indent=2), encoding="utf-8")
+        if args.mode == "offline":
+            inventory = ROOT / "fixtures/requirements/inventory-reservation/requirement.json"
+            shutil.copyfile(inventory, req_path)
+        else:
+            req_path.write_text(bundle.requirement.model_dump_json(indent=2), encoding="utf-8")
         app = create_app(store=Store(temporary / "state.sqlite3"))
         backend_port = free_port()
         backend_url = f"http://127.0.0.1:{backend_port}"
@@ -98,8 +104,10 @@ def main():
         vite = None
         try:
             wait_http(backend_url + "/health", thread=backend)
-            with fixture.workflow_model_server(bundle) as (model_url, calls):
-                for role in ("Daedalus", "Momus", "Hephaestus", "Argus", "Hermes"):
+            provider = fixture.workflow_model_server(bundle) if args.mode == "online" else nullcontext(("", []))
+            with provider as (model_url, calls):
+                roles = ("Daedalus", "Momus", "Hephaestus", "Argus", "Hermes") if model_url else ()
+                for role in roles:
                     request_json(backend_url + f"/api/settings/agents/{role}", method="PUT", body={
                         "base_url": model_url, "model": f"local-{role}", "api_key": f"browser-test-key-{role}",
                     })
@@ -117,7 +125,7 @@ def main():
                     wait_http(frontend_url, process=vite)
                     result = subprocess.run(
                         [node, str(ROOT / "frontend/tests/integration/real-workflow.mjs"),
-                         frontend_url, model_url, str(req_path), str(output)],
+                         frontend_url, model_url, str(req_path), str(output), args.mode],
                         cwd=ROOT, env=environment, timeout=240,
                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                     )

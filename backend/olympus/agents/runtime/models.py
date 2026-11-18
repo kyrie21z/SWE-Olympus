@@ -29,6 +29,11 @@ class InputWhitelistError(ValueError):
 class OutputSchemaError(ValueError):
     """Model output does not satisfy the declared schema or validator."""
 
+    def __init__(self, message: str, *, hint: str | None = None):
+        super().__init__(message)
+        self.hint = hint  # Only program-authored diagnostics, never model output.
+        self.role_id: str | None = None
+
 
 class ProviderNotConfiguredError(RuntimeError):
     """Real provider credentials/config are incomplete."""

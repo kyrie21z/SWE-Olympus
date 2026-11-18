@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
+from http.client import HTTPException
 from pathlib import Path
+from time import monotonic
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
@@ -22,6 +26,19 @@ StepStatus = Literal["succeeded", "failed", "outcome_unknown"]
 _SPEC_KEYS = frozenset(
     {"steps", "output", "result", "status", "kind", "usage", "late_generation", "review_id"}
 )
+_MODEL_STUDIO_FAST_MODELS = frozenset({"qwen3.8-max", "qwen3.8-max-0902", "qwen3.8-flash"})
+_JSON_FENCE = re.compile(r"\A\s*```(?:json)?\s*\n(.*?)\n```\s*\Z", re.IGNORECASE | re.DOTALL)
+
+
+def _model_studio_options(url: str, model: str | None) -> dict[str, JsonValue]:
+    host = urlsplit(url).hostname or ""
+    model_studio = host.endswith(".maas.aliyuncs.com") or host in {
+        "dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com",
+    }
+    if not model_studio or model not in _MODEL_STUDIO_FAST_MODELS:
+        return {}
+    # These roles work from supplied sources and validate structured results locally.
+    return {"enable_thinking": False, "enable_search": False, "response_format": {"type": "json_object"}}
 
 
 class ProviderStepResult(Contract):
@@ -222,6 +239,15 @@ class RealProvider:
             "temperature": 0,
         }
         url = self.base_url.rstrip("/") + "/chat/completions"
+        fast_options = _model_studio_options(url, self.model)
+        if fast_options:
+            payload.update(fast_options)
+            payload["messages"][0]["content"] += " Return a JSON object without Markdown or surrounding prose."
+            schema = request.output_schema
+            if schema.get("additionalProperties") is False and schema.get("properties"):
+                payload["response_format"] = {"type": "json_schema", "json_schema": {
+                    "name": "olympus_output", "strict": True, "schema": schema,
+                }}
         http_request = urllib.request.Request(
             url,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -231,31 +257,38 @@ class RealProvider:
             },
             method="POST",
         )
+        started = monotonic()
         try:
             with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
-                raw = response.read().decode("utf-8")
+                raw = response.read()
         except urllib.error.HTTPError as exc:
             if exc.code >= 500:
                 return ProviderStepResult(
                     kind="model", status="outcome_unknown", error_code=f"http_{exc.code}"
                 )
             return ProviderStepResult(kind="model", status="failed", error_code=f"http_{exc.code}")
-        except (TimeoutError, urllib.error.URLError):
+        except (OSError, HTTPException) as exc:
+            timed_out = isinstance(exc, TimeoutError) or (
+                isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError)
+            )
             return ProviderStepResult(
-                kind="model", status="outcome_unknown", error_code="provider_transport_error"
+                kind="model", status="outcome_unknown",
+                error_code="provider_timeout" if timed_out else "provider_transport_error",
+                usage={"elapsed_ms": round((monotonic() - started) * 1000)},
             )
         try:
             body = json.loads(raw)
             message = body["choices"][0]["message"]["content"]
-        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+        except (json.JSONDecodeError, UnicodeError, KeyError, IndexError, TypeError):
             return ProviderStepResult(kind="model", status="failed", error_code="invalid_provider_response")
         try:
-            parsed = json.loads(message)
+            fence = _JSON_FENCE.fullmatch(message) if isinstance(message, str) else None
+            parsed = json.loads(fence.group(1) if fence else message)
             output = parsed if isinstance(parsed, dict) else {"content": message}
         except (json.JSONDecodeError, TypeError):
             output = {"content": message}
         raw_usage = body.get("usage") if isinstance(body, dict) else None
-        usage: dict[str, int] = {}
+        usage: dict[str, int] = {"elapsed_ms": round((monotonic() - started) * 1000)}
         if isinstance(raw_usage, dict):
             for source, target in (
                 ("prompt_tokens", "prompt_tokens"),
