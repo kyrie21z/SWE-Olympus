@@ -48,7 +48,7 @@ export function RequirementDetails({
         type="info"
         showIcon
         title="本地导入不等于正式接纳"
-        description="文件中的确认声明仍需服务端核验来源、授权和依赖；这里不会发起生成或执行。"
+        description="本区只读预览原文。请通过工作台建立运行并明确接纳需求，再进入设计、规划和执行；每个阶段保留人工批准。"
       />
       <Descriptions
         size="small"

@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+const backendUrl = process.env.OLYMPUS_BACKEND_URL || "http://127.0.0.1:8000";
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -7,8 +8,8 @@ export default defineConfig({
     port: 5175,
     strictPort: true,
     proxy: {
-      "/health": "http://127.0.0.1:8000",
-      "/api": "http://127.0.0.1:8000",
+      "/health": backendUrl,
+      "/api": backendUrl,
     },
   },
 });

@@ -4,11 +4,13 @@ import { parseSnapshot } from "../../src/data/core/events";
 import type { RunView } from "../../src/data/core/run-view";
 import {
   P6_COMMANDS,
+  P6_PLAN,
   allowedActionFor,
   buildDagLayoutFromView,
   buildTaskViewsFromView,
   commandAvailabilityFromView,
   createCommandForView,
+  currentStageIndex,
   deriveStagesFromView,
   deriveTraceRowsFromView,
 } from "../../src/p6/model";
@@ -38,6 +40,28 @@ describe("P6 HTTP view projection", () => {
     expect(tasks[0].runtime.state).toBe("waiting");
   });
 
+  it("uses the server plan for reused task IDs and never borrows unrelated fixture semantics", () => {
+    const view = contractView();
+    view.plan = structuredClone(P6_PLAN);
+    view.plan.object_id = "PLAN-inventory";
+    const task = view.plan.tasks.find(item => item.task_id === "T01");
+    if (!task) throw new Error("missing T01");
+    task.goal = "实现库存预占接口";
+    task.sources = ["FR-STOCK-001"];
+    task.write_scope = ["inventory/core"];
+    let tasks = buildTaskViewsFromView(view);
+    expect(tasks.find(item => item.task.task_id === "T01")?.task).toMatchObject({goal:"实现库存预占接口",sources:["FR-STOCK-001"],write_scope:["inventory/core"]});
+    const remaining = view.plan.tasks.filter(item => item.task_id !== "T01");
+    if (!remaining.length) throw new Error("missing remaining plan tasks");
+    view.plan.tasks = [remaining[0], ...remaining.slice(1)];
+    tasks = buildTaskViewsFromView(view);
+    expect(tasks.find(item => item.task.task_id === "T01")?.task.goal).toBe("动态任务 T01");
+    expect(tasks.find(item => item.task.task_id === "T01")?.task.write_scope).toEqual(["dynamic/T01"]);
+    delete view.plan;
+    if (view.trace) view.trace.plan_ref.object_id = "PLAN-other-business";
+    expect(buildTaskViewsFromView(view).find(item => item.task.task_id === "T01")?.task.goal).toBe("动态任务 T01");
+  });
+
   it("uses backend progress, blocked sets, and pause state for stages", () => {
     const view = contractView();
     const tasks = buildTaskViewsFromView(view);
@@ -49,6 +73,38 @@ describe("P6 HTTP view projection", () => {
     expect(
       stages.find((stage) => stage.key === "execute")?.description,
     ).toContain("0 / 8");
+  });
+
+  it("binds stage approvals to arbitrary trace IDs, versions and fingerprints", () => {
+    const view = contractView();
+    if (!view.trace) throw new Error("missing trace");
+    view.trace.req_ref = {object_id:"REQ-stock-control",version:3,content_hash:"a".repeat(64)};
+    view.trace.ds_ref = {object_id:"DESIGN-storage-v2",version:5,content_hash:"b".repeat(64)};
+    view.trace.plan_ref = {object_id:"PLAN-independent-07",version:2,content_hash:"c".repeat(64)};
+    view.snapshot.approved_package = [view.trace.req_ref,view.trace.ds_ref,view.trace.plan_ref].map(ref => ({schema_version:"1.0",...ref}));
+    let stages = deriveStagesFromView(view, buildTaskViewsFromView(view));
+    expect(stages.slice(0,3).map(stage => stage.status)).toEqual(["accepted","accepted","accepted"]);
+    expect(stages[0].description).toBe("REQ-stock-control · v3 · 已批准");
+    expect(stages[1].description).toBe("DESIGN-storage-v2 · v5 · 已批准");
+    expect(stages[2].description).toBe("PLAN-independent-07 · v2 · 已批准");
+    view.snapshot.approved_package[1].version = 4;
+    view.snapshot.approved_package[2].content_hash = "d".repeat(64);
+    stages = deriveStagesFromView(view, buildTaskViewsFromView(view));
+    expect(stages.slice(0,3).map(stage => stage.status)).toEqual(["accepted","waiting","waiting"]);
+    expect(stages[1].description).toContain("v5 · 待批准");
+  });
+
+  it("keeps a completed run on final acceptance when all five stages are accepted", () => {
+    const view = contractView();
+    if (!view.trace) throw new Error("missing trace");
+    view.snapshot.approved_package = [view.trace.req_ref,view.trace.ds_ref,view.trace.plan_ref].map(ref => ({schema_version:"1.0",...ref}));
+    view.snapshot.status = "completed";
+    view.snapshot.tasks.forEach(task => {task.state="accepted";task.verification_status="passed";});
+    view.projection.progress.accepted = view.projection.progress.required;
+    const stages = deriveStagesFromView(view, buildTaskViewsFromView(view));
+    expect(stages.every(stage => stage.status === "accepted")).toBe(true);
+    expect(stages[currentStageIndex(stages)].key).toBe("acceptance");
+    expect(currentStageIndex([])).toBe(0);
   });
 
   it("keeps risk acceptance separate from verified traceability", () => {

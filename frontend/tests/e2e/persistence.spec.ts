@@ -39,7 +39,7 @@ test("structured REQ import survives reload and stays outside formal execution",
     page.getByText("按标题检索团队文档", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "生成设计规格（待接入）" }),
+    page.getByRole("button", { name: "建立运行并核验需求" }),
   ).toBeDisabled();
   await page.screenshot({
     path: info.outputPath("structured-import.png"),

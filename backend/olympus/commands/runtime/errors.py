@@ -21,3 +21,15 @@ class PlanNotBound(ApiError):
 
     def __init__(self, message: str, *, detail: dict[str, Any] | None = None) -> None:
         super().__init__(message, detail=detail)
+
+
+class CommandPersistenceUnavailable(ApiError):
+    """No success is returned when an atomic command transaction fails."""
+
+    status_code = 503
+    code = "COMMAND_PERSISTENCE_UNAVAILABLE"
+
+
+class CommandStateConflict(ApiError):
+    status_code = 409
+    code = "COMMAND_STATE_CONFLICT"

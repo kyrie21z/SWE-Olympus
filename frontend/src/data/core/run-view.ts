@@ -1,6 +1,7 @@
 import type {
   Command,
   ExecutionRecord,
+  Plan,
   Run,
   TaskRuntime,
 } from "../../contracts/generated";
@@ -111,6 +112,7 @@ export interface RunView {
   schema_version: "1.0";
   run_id: string;
   snapshot: Run;
+  plan?: Plan;
   projection: RuntimeProjection;
   allowed_actions: AllowedAction[];
   trace: TraceabilityIndex | null;

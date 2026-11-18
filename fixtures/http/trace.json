@@ -275,6 +275,7 @@
     "out_of_scope_hits": [],
     "dangling_sources": [],
     "coverage_complete": true,
-    "index_hash": "6ded0d0e38af161a07f74981ec2bc352fb9afec83d659ccd99650d545b31c89c"
+    "index_hash": "2474637d623275b617746e5b445fac9ff5f590c09a3e85d73ca9ccf77b3f3a53",
+    "planning_index_hash": "6ded0d0e38af161a07f74981ec2bc352fb9afec83d659ccd99650d545b31c89c"
   }
 }

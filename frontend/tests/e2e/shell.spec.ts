@@ -54,7 +54,7 @@ test("file handoff preserves material and does not restart requirements discussi
     page.getByText("优先核实检索范围。", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "生成设计规格（待接入）" }),
+    page.getByRole("button", { name: "建立运行并核验需求" }),
   ).toBeDisabled();
   await expect(page.getByText("多体讨论", { exact: true })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
@@ -75,6 +75,7 @@ test("file handoff preserves material and does not restart requirements discussi
 test("mobile import and navigation fit the viewport", async ({
   page,
 }, info) => {
+  await page.route("**/api/settings/agents", async route => route.fulfill({json:{agents:["Athena","Daedalus","Momus","Hephaestus","Argus","Hermes"].map(role_id => ({role_id,base_url:"",model:"",timeout_seconds:120,configured:false,has_api_key:false}))}}));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await page.screenshot({

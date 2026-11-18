@@ -99,6 +99,9 @@ def install_error_handlers(app: FastAPI) -> None:
             content=_envelope(
                 "INVALID_ARGUMENT",
                 "请求参数不合法",
-                {"errors": jsonable_encoder(exc.errors())},
+                {"errors": jsonable_encoder([
+                    {"loc": error["loc"], "type": error["type"], "msg": "字段不符合要求"}
+                    for error in exc.errors()
+                ])},
             ),
         )

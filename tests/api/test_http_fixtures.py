@@ -40,7 +40,7 @@ def test_fixtures_expose_durability_and_errors():
         for path in (ROOT / "fixtures" / "http").glob("*.json")
     }
 
-    assert fixtures["command_start"]["headers"]["x-olympus-durability"] == "memory"
+    assert fixtures["command_start"]["headers"]["x-olympus-durability"] == "sqlite"
     assert fixtures["command_start"]["body"]["status"] == "accepted"
     assert fixtures["command_stale"]["body"]["reason_code"] == "stale"
     assert fixtures["snapshot"]["body"]["status"] == "paused"

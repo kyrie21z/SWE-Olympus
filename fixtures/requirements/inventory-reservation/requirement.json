@@ -1,0 +1,106 @@
+{
+  "schema_version": "1.0",
+  "object_id": "REQ-INVENTORY-RESERVATION",
+  "version": 1,
+  "content_hash": "59c025f1a5c736265bb7a7e4a93ea4cb10d1a4b4dbf19c5add47ffb90fa2c1a3",
+  "provenance": [
+    {
+      "schema_version": "1.0",
+      "kind": "synthetic_fixture",
+      "source_id": "INVENTORY-TEST-001",
+      "locator": "库存与订单预占测试需求 人工构造样例 2026年11月18日"
+    }
+  ],
+  "content": {
+    "requirements": [
+      {
+        "id": "FR-001",
+        "text": "创建商品及初始库存；商品编号唯一，库存创建后不得直接修改。",
+        "acceptance": "首次创建返回 initial=available=指定库存、reserved=sold=0；同编号再次创建返回 SKU_EXISTS，原记录不变。"
+      },
+      {
+        "id": "FR-002",
+        "text": "使用订单编号为单个商品预占指定数量；预占必须原子完成。",
+        "acceptance": "新订单预占成功后状态 RESERVED，available 减少 quantity，reserved 增加 quantity；未知商品返回 SKU_NOT_FOUND，库存不足返回 INSUFFICIENT_STOCK，不创建订单。"
+      },
+      {
+        "id": "FR-003",
+        "text": "确认预占订单，将其转为已成交状态。",
+        "acceptance": "RESERVED 确认后变为 CONFIRMED，reserved 减少 quantity、sold 增加 quantity、available 不变；CANCELLED 确认返回 STATE_CONFLICT。"
+      },
+      {
+        "id": "FR-004",
+        "text": "取消预占订单并归还库存。",
+        "acceptance": "RESERVED 取消后变为 CANCELLED，reserved 减少 quantity、available 增加 quantity、sold 不变；CONFIRMED 取消返回 STATE_CONFLICT。"
+      },
+      {
+        "id": "FR-005",
+        "text": "预占以全局唯一订单编号实现幂等；失败请求不占用订单编号。",
+        "acceptance": "同订单编号且商品和数量相同的重复预占返回当前订单，所有状态下均不再次扣库存；任一参数不同返回 ORDER_CONFLICT；首次失败后可修正参数并复用编号。"
+      },
+      {
+        "id": "FR-006",
+        "text": "确认和取消的重复请求保持终态幂等。",
+        "acceptance": "重复确认 CONFIRMED、重复取消 CANCELLED 均成功并返回原订单；未知订单返回 ORDER_NOT_FOUND；终态不复活，库存不再次变化。"
+      },
+      {
+        "id": "FR-007",
+        "text": "查询商品库存及订单详情，返回固定字段。",
+        "acceptance": "商品返回 sku、initial、available、reserved、sold；订单返回 order_id、sku、quantity、state；未知商品或订单分别返回 SKU_NOT_FOUND 或 ORDER_NOT_FOUND。"
+      },
+      {
+        "id": "FR-008",
+        "text": "严格校验编号及数量，不进行隐式转换。",
+        "acceptance": "编号须为匹配 [A-Za-z0-9_-]{1,32} 的字符串，区分大小写且不去空格；初始库存为0至10000的整数，预占数量为1至10000的整数；拒绝布尔值、浮点数、数字字符串，返回 INVALID_ARGUMENT。"
+      },
+      {
+        "id": "FR-009",
+        "text": "并发预占、确认、取消及查询必须保持库存守恒和合法状态。",
+        "acceptance": "所有可见快照均满足 initial=available+reserved+sold 且三项非负；100个不同订单并发预占10件库存时恰好10个成功；同订单确认与取消竞态仅一个终态成功，另一个返回 STATE_CONFLICT。"
+      },
+      {
+        "id": "FR-010",
+        "text": "查询和写操作返回独立快照，调用方不得通过返回值修改内部状态。",
+        "acceptance": "返回 data 为普通字典；修改返回字典中的字段后再次查询，内部库存及订单状态不变；各商品与不同服务实例互不影响。"
+      },
+      {
+        "id": "FR-011",
+        "text": "统一返回结果和失败语义；失败不得改变库存或订单。",
+        "acceptance": "成功返回 {ok:true,data:对象}，失败返回 {ok:false,error:{code:错误码}}；校验顺序为参数格式、订单冲突、商品存在、库存充足；业务错误不抛异常，失败自身不修改状态，无并发写时前后快照相同。"
+      },
+      {
+        "id": "NFR-001",
+        "text": "交付 Python 3.12及以上可运行的单进程内存业务核心。",
+        "acceptance": "提供 InventoryService 的 create_sku、reserve、confirm、cancel、get_sku、get_order 六个公开方法；运行核心无需第三方包、数据库或网络，不跨进程共享状态。"
+      },
+      {
+        "id": "NFR-002",
+        "text": "交付可重复执行的自动化测试及中文运行说明。",
+        "acceptance": "使用 unittest 覆盖正常、边界、非法状态、幂等、数据隔离和并发；100请求抢10件测试用全新实例连续执行5轮均通过；报告实际测试数和结果。"
+      }
+    ],
+    "out_of_scope": [
+      "登录认证、用户权限和真实个人资料",
+      "支付、退款、价格和优惠计算",
+      "补货、退货、多商品订单及部分成交",
+      "数据库、磁盘持久化、跨进程锁及分布式部署",
+      "订单超时、定时取消、消息推送和外部服务",
+      "Web 页面、HTTP 接口及移动端界面"
+    ]
+  },
+  "kind": "REQ",
+  "confirmation": {
+    "schema_version": "1.0",
+    "confirmation_id": "CONF-INVENTORY-TEST-001",
+    "actor": "YOU-fixture",
+    "origin": "synthetic_fixture",
+    "target": {
+      "schema_version": "1.0",
+      "object_id": "REQ-INVENTORY-RESERVATION",
+      "version": 1,
+      "content_hash": "59c025f1a5c736265bb7a7e4a93ea4cb10d1a4b4dbf19c5add47ffb90fa2c1a3"
+    },
+    "dependencies": [],
+    "confirmed_at": "2026-11-18T00:00:00Z"
+  }
+}
