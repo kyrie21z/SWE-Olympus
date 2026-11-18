@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "object_id": "REQ-TEAM-DOCS-DEMO",
+  "version": 2,
+  "content_hash": "c3c4aa8e4d2493bbafb39e8d14ebd5775997ad4bc20812801d571655e1f75ff9",
+  "provenance": [
+    {
+      "schema_version": "1.0",
+      "kind": "synthetic_fixture",
+      "source_id": "DEMO-TEAM-DOCS-02",
+      "locator": "团队文档离线演示。标题检索和历史版本分别实现，经合并验收后核对交付证据。"
+    }
+  ],
+  "content": {
+    "requirements": [
+      {
+        "id": "FR-001",
+        "text": "按标题关键词检索团队文档。",
+        "acceptance": "搜索「指南」能找到《交接指南》。没有匹配时返回空列表。"
+      },
+      {
+        "id": "FR-002",
+        "text": "保存并查看同一文档的历史版本。",
+        "acceptance": "《交接指南》先后保存「初稿」和「修订」后，可以按版本号分别读到对应内容。"
+      }
+    ],
+    "out_of_scope": []
+  },
+  "kind": "REQ",
+  "confirmation": {
+    "schema_version": "1.0",
+    "confirmation_id": "H-TEAM-DOCS-DEMO-V2",
+    "actor": "YOU-fixture",
+    "origin": "synthetic_fixture",
+    "target": {
+      "schema_version": "1.0",
+      "object_id": "REQ-TEAM-DOCS-DEMO",
+      "version": 2,
+      "content_hash": "c3c4aa8e4d2493bbafb39e8d14ebd5775997ad4bc20812801d571655e1f75ff9"
+    },
+    "dependencies": [],
+    "confirmed_at": "2026-11-19T00:00:00+08:00"
+  }
+}

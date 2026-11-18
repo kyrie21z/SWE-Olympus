@@ -26,6 +26,7 @@ from olympus.planning.validator import (
     requirement_ids,
     scan_out_of_scope,
     uncovered_design_elements,
+    uncovered_requirements,
 )
 
 
@@ -88,6 +89,7 @@ def build_planning_traceability(req: Requirement, ds: Design, plan: Plan) -> Pla
     ds_ids = design_element_ids(ds)
     elements = ds.content["elements"]
     known_sources = set(req_ids) | set(ds_ids)
+    missing_requirements = uncovered_requirements(plan, req)
 
     rows: list[TraceabilityRow] = []
     for item in req.content["requirements"]:
@@ -106,7 +108,7 @@ def build_planning_traceability(req: Requirement, ds: Design, plan: Plan) -> Pla
                 integrate_tasks=_task_ids_by_type(tasks, "integrate"),
                 doc_tasks=_task_ids_by_type(tasks, "doc"),
                 all_tasks=all_tasks,
-                stage_status="planned" if all_tasks else "missing_coverage",
+                stage_status="missing_coverage" if req_id in missing_requirements else "planned",
             )
         )
 
@@ -118,7 +120,6 @@ def build_planning_traceability(req: Requirement, ds: Design, plan: Plan) -> Pla
         if source not in known_sources
     ]
     hits = scan_out_of_scope(req, plan.tasks)
-    uncovered_requirements = [row.req_id for row in rows if not row.all_tasks]
     uncovered_design = uncovered_design_elements(plan, req, ds)
 
     fields = {
@@ -131,13 +132,13 @@ def build_planning_traceability(req: Requirement, ds: Design, plan: Plan) -> Pla
             ds_id: [task.task_id for task in plan.tasks if ds_id in task.sources] for ds_id in ds_ids
         },
         "task_to_sources": {task.task_id: list(task.sources) for task in plan.tasks},
-        "uncovered_requirements": uncovered_requirements,
+        "uncovered_requirements": missing_requirements,
         "uncovered_design_elements": uncovered_design,
         "missing_test_requirements": missing_test,
         "out_of_scope_hits": hits,
         "dangling_sources": dangling,
         "coverage_complete": not (
-            uncovered_requirements or uncovered_design or missing_test or hits or dangling
+            missing_requirements or uncovered_design or missing_test or hits or dangling
         ),
     }
     draft = PlanningTraceabilityIndex.model_construct(**fields, schema_version="1.0", index_hash="0" * 64)

@@ -98,12 +98,12 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
       return route.fulfill({json:view()});
     }
     actions.push(body.action);
-    const next = {approve_requirement:"requirement_approved",generate_design:"design_generating",approve_design:"design_approved",generate_plan:"plan_generating",approve_plan:"plan_approved",execute:"awaiting_acceptance",accept_run:"completed"} as const;
+    const next = {approve_requirement:"requirement_approved",generate_design:"design_generating",approve_design:"design_approved",generate_plan:"plan_generating",generate_plan_revision:"plan_generating",approve_plan:"plan_approved",execute:"awaiting_acceptance",accept_run:"completed"} as const satisfies Record<WorkflowAction, WorkflowSnapshot["stage"]>;
     snapshot = {...snapshot,stage:next[body.action as WorkflowAction]};
     if (body.action === "generate_design" && ++designRequests === 2) {
       snapshot.design_revision = {round:2,limit:3,started_at:new Date().toISOString(),finding_count:2};
     }
-    if (body.action === "generate_plan") planRequests++;
+    if (body.action === "generate_plan" || body.action === "generate_plan_revision") planRequests++;
     if (body.action === "execute") snapshot.executions = [{task_id:"T01",runtime:{state:"accepted"},execution:{checks_passed:["check:T01"],tool_mode:"real_tool",review:{verdict:"passed"}}}];
     return route.fulfill({json:view()});
   });
@@ -189,3 +189,192 @@ test("an unknown model outcome remains blocked without a blind retry action", as
   await expect(page.getByTestId("workflow-stage")).toHaveText("运行出错");
   expect(actions).toBe(0);
 });
+
+test("planning reconnects after a lost response and shows Momus progress without resubmitting", async ({page}) => {
+  test.setTimeout(30_000);
+  let actions = 0, failedPoll = false, completed = false;
+  let snapshot: WorkflowSnapshot = {
+    workflow_id:"WF-reconnect",run_id:"RUN-reconnect",stage:"design_approved",error:null,
+    requirement:example,design:bundle.design,design_review:null,plan:null,plan_review:null,
+    executions:[],acceptance:{},allowed_actions:["generate_plan"],
+  };
+  await page.route("**/api/workflows**", async route => {
+    if (route.request().url().endsWith("/actions")) {
+      actions++;
+      snapshot = {...snapshot,stage:"plan_generating",pending_action:"generate_plan",allowed_actions:[],progress:{role_id:"Momus",task_kind:"acceptance_definition",task_id:"T02",completed:1,total:8,message:"Momus 正在生成 T02 的验收检查"}};
+      return route.abort("connectionreset");
+    }
+    if (route.request().method() === "GET" && snapshot.stage === "plan_generating") {
+      if (!failedPoll) {failedPoll = true; return route.abort("connectionreset");}
+      if (completed) snapshot = {...snapshot,stage:"plan_pending_approval",progress:null,pending_action:null,plan:bundle.plan,allowed_actions:["approve_plan"]};
+    }
+    return route.fulfill({json:snapshot});
+  });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({name:"reconnect.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(example))});
+  await page.getByRole("button", {name:"保存导入并查看"}).click();
+  await page.getByLabel("在线 Agent", {exact:true}).check();
+  await page.getByLabel("允许将这份构造样例用于测试运行").check();
+  await page.getByRole("button", {name:"建立运行并核验需求"}).click();
+  await page.getByRole("button", {name:"生成任务计划"}).click();
+  await expect(page.getByText("后端连接暂时中断，正在自动重连", {exact:true})).toBeVisible();
+  await expect(page.getByTestId("workflow-progress")).toContainText("Momus 正在生成 T02 的验收检查", {timeout:10_000});
+  await expect(page.getByTestId("workflow-progress")).toContainText("已完成 1 / 8");
+  await expect(page.getByText("后端连接暂时中断，正在自动重连", {exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button", {name:"刷新状态"})).toBeEnabled();
+  expect(actions).toBe(1);
+  completed = true;
+  await page.getByRole("button", {name:"刷新状态"}).click();
+  await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准计划与验收检查");
+  await expect(page.getByTestId("workflow-progress")).toHaveCount(0);
+  expect(actions).toBe(1);
+});
+
+for (const phase of ["design", "plan"] as const) {
+  test(`${phase} review keeps repaired blockers in history and retains open advice`, async ({page}) => {
+    const repairedMessage = "已完成的校验顺序修复";
+    const openMessage = "建议补充终态幂等测试";
+    const closure = "TASK-RESERVE.checks 已包含格式、冲突、存在性、库存的完整校验顺序";
+    const canonical = {verdict:"passed",findings:[repairedMessage,openMessage]};
+    const record = {review:canonical,submission:{findings:[
+      {finding_id:"REPAIRED",message:repairedMessage,severity:"blocker",status:"closed",closure_reason:closure},
+      {finding_id:"OPEN-ADVICE",message:openMessage,severity:"important",status:"open"},
+    ]}};
+    const snapshot: WorkflowSnapshot = {
+      workflow_id:`WF-review-${phase}`,run_id:`RUN-review-${phase}`,stage:phase === "plan" ? "plan_pending_approval" : "design_pending_approval",
+      error:null,requirement:example,design:bundle.design,design_review:phase === "design" ? record : null,
+      plan:phase === "plan" ? bundle.plan : null,plan_review:canonical,plan_review_record:phase === "plan" ? record : undefined,
+      executions:[],acceptance:{},allowed_actions:[],
+    };
+    await page.route("**/api/workflows**", route => route.fulfill({json:snapshot}));
+    await page.goto("/");
+    await page.locator('input[type="file"]').setInputFiles({name:`review-${phase}.json`,mimeType:"application/json",buffer:Buffer.from(JSON.stringify(example))});
+    await page.getByRole("button", {name:"保存导入并查看"}).click();
+    await page.getByRole("radio", {name:"离线样例"}).check();
+    await page.getByLabel("允许将这份构造样例用于测试运行").check();
+    await page.getByRole("button", {name:"建立运行并核验需求"}).click();
+    await page.getByRole("tab", {name:phase === "plan" ? "任务分解" : "设计规格",exact:true}).click();
+    const review = page.locator(".workflow-review:visible");
+    const active = review.getByRole("list", {name:"未关闭的审查意见"});
+    await expect(active).toContainText(openMessage);
+    await expect(active).not.toContainText(repairedMessage);
+    await expect(active.getByText("阻断", {exact:true})).toHaveCount(0);
+    await expect(review.getByText("通过", {exact:true})).toBeVisible();
+    await expect(review.getByText(repairedMessage, {exact:true})).not.toBeVisible();
+    await review.getByText("已修复 1 项", {exact:true}).click();
+    const resolved = review.getByRole("list", {name:"已修复的审查意见"});
+    await expect(resolved).toContainText(repairedMessage);
+    await expect(resolved).toContainText(closure);
+    await expect(active).toContainText(openMessage);
+    await review.getByText("查看完整独立审查报告", {exact:true}).click();
+    await expect(review.locator("pre")).toContainText('"status": "closed"');
+  });
+}
+
+test("legacy raw review findings remain visible when no structured record exists", async ({page}) => {
+  const message = "旧版报告中的审查说明";
+  await page.route("**/api/workflows**", route => route.fulfill({json:{
+    workflow_id:"WF-legacy-review",run_id:"RUN-legacy-review",stage:"plan_pending_approval",error:null,
+    requirement:example,design:bundle.design,design_review:null,plan:bundle.plan,
+    plan_review:{verdict:"passed",findings:[message]},executions:[],acceptance:{},allowed_actions:[],
+  }}));
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({name:"legacy-review.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(example))});
+  await page.getByRole("button", {name:"保存导入并查看"}).click();
+  await page.getByRole("radio", {name:"离线样例"}).check();
+  await page.getByLabel("允许将这份构造样例用于测试运行").check();
+  await page.getByRole("button", {name:"建立运行并核验需求"}).click();
+  await page.getByRole("tab", {name:"任务分解",exact:true}).click();
+  await expect(page.getByRole("list", {name:"未关闭的审查意见"})).toContainText(message);
+  await expect(page.getByText("已修复 1 项", {exact:true})).toHaveCount(0);
+});
+
+for (const stage of ["execution_blocked", "error"] as const) {
+  test(`${stage} source opens its existing revision and never resubmits old execution`, async ({page}) => {
+    let creates = 0, actions = 0;
+    const source: WorkflowSnapshot = {
+      workflow_id:"WF-source",run_id:"RUN-source",stage,error:{code:"TASKS_BLOCKED",message:"旧运行保留失败证据"},
+      requirement:example,design:bundle.design,design_review:null,plan:bundle.plan,plan_review:null,
+      executions:[{task_id:"TASK-IFACE-SERVICE",runtime:{state:"failed"},execution:{state:"failed",check_outputs:[
+        {check_id:"Passed signatures",exit_code:0},{check_id:"Source metadata import_roots is empty",exit_code:1},
+      ]}}],acceptance:{},plan_bound:true,successor_workflow_id:"WF-revision",successor_run_id:"RUN-revision",
+      retry_safe:stage === "error",retry_action:stage === "error" ? "execute" : null,allowed_actions:["execute"],
+    };
+    const child: WorkflowSnapshot = {
+      workflow_id:"WF-revision",run_id:"RUN-revision",stage:"plan_pending_approval",error:null,
+      requirement:example,design:bundle.design,design_review:null,plan:bundle.plan,plan_review:null,
+      executions:[],acceptance:{},plan_bound:false,source_workflow_id:"WF-source",source_run_id:"RUN-source",allowed_actions:["approve_plan"],
+    };
+    await page.route("**/api/workflows**", route => {
+      const request = route.request();
+      if (request.method() === "POST") {
+        if (new URL(request.url()).pathname.endsWith("/actions")) actions++;
+        else creates++;
+        return route.fulfill({json:source});
+      }
+      return route.fulfill({json:new URL(request.url()).pathname.endsWith("/WF-revision") ? child : source});
+    });
+    await page.goto("/");
+    await page.locator('input[type="file"]').setInputFiles({name:`linked-${stage}.json`,mimeType:"application/json",buffer:Buffer.from(JSON.stringify(example))});
+    await page.getByRole("button", {name:"保存导入并查看"}).click();
+    await page.getByRole("radio", {name:"离线样例"}).check();
+    await page.getByLabel("允许将这份构造样例用于测试运行").check();
+    await page.getByRole("button", {name:"建立运行并核验需求"}).click();
+    await expect(page.getByRole("button", {name:"继续执行",exact:true})).toHaveCount(0);
+    await expect(page.getByRole("button", {name:"重试当前阶段",exact:true})).toHaveCount(0);
+    await expect(page.getByTestId("workflow-failure")).toContainText("TASK-IFACE-SERVICE");
+    await expect(page.getByTestId("workflow-failure")).toContainText("Source metadata import_roots is empty");
+    await expect(page.getByTestId("workflow-failure")).not.toContainText("Passed signatures");
+    await page.getByRole("button", {name:"打开修订后的运行",exact:true}).click();
+    await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准计划与验收检查");
+    await expect(page.getByText("WF-revision", {exact:true})).toBeVisible();
+    await expect(page.getByRole("button", {name:"批准计划与验收检查",exact:true})).toBeDisabled();
+    await expect(page.getByTestId("workflow-failure")).toHaveCount(0);
+    await expect(page.getByRole("button", {name:"查看来源运行",exact:true})).toBeVisible();
+    await page.getByRole("button", {name:"查看来源运行",exact:true}).click();
+    await expect(page.getByRole("button", {name:"打开修订后的运行",exact:true})).toBeVisible();
+    await expect(page.getByRole("button", {name:"继续执行",exact:true})).toHaveCount(0);
+    await page.getByRole("button", {name:"打开修订后的运行",exact:true}).click();
+    await page.reload();
+    await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准计划与验收检查");
+    await expect(page.getByText("WF-revision", {exact:true})).toBeVisible();
+    expect(creates).toBe(1);
+    expect(actions).toBe(0);
+  });
+}
+
+for (const stage of ["plan_review_blocked", "error"] as const) {
+  test(`${stage} polling never repairs a plan without an explicit button click`, async ({page}) => {
+    let gets = 0, actions = 0;
+    let snapshot: WorkflowSnapshot = {
+      workflow_id:"WF-no-auto-repair",run_id:"RUN-no-auto-repair",stage,
+      error:stage === "error" ? {code:"OUTPUT_SCHEMA_ERROR",message:"等待显式重试",action:"generate_plan"} : null,
+      requirement:example,design:bundle.design,design_review:null,plan:bundle.plan,
+      plan_review_record:{review:{verdict:"blocked"},submission:{findings:[{finding_id:"OPEN",message:"等待明确修复",severity:"blocker",status:"open"}]}},
+      plan_review:null,executions:[],acceptance:{},allowed_actions:["generate_plan"],
+      retry_safe:stage === "error",retry_action:stage === "error" ? "generate_plan" : null,
+    };
+    await page.route("**/api/workflows**", route => {
+      const request = route.request();
+      if (request.method() === "GET") gets++;
+      if (new URL(request.url()).pathname.endsWith("/actions")) {
+        actions++;
+        expect(request.postDataJSON().action).toBe("generate_plan");
+        snapshot = {...snapshot,stage:"plan_generating",error:null,allowed_actions:[],retry_action:null,retry_safe:false};
+      }
+      return route.fulfill({json:snapshot});
+    });
+    await page.goto("/");
+    await page.locator('input[type="file"]').setInputFiles({name:`no-auto-${stage}.json`,mimeType:"application/json",buffer:Buffer.from(JSON.stringify(example))});
+    await page.getByRole("button", {name:"保存导入并查看"}).click();
+    await page.getByRole("radio", {name:"离线样例"}).check();
+    await page.getByLabel("允许将这份构造样例用于测试运行").check();
+    await page.getByRole("button", {name:"建立运行并核验需求"}).click();
+    await expect.poll(() => gets, {timeout:8000}).toBeGreaterThanOrEqual(3);
+    expect(actions).toBe(0);
+    await expect(page.getByTestId("workflow-stage")).toHaveText(stage === "error" ? "运行出错" : "计划审查阻断");
+    await page.getByRole("button", {name:stage === "error" ? "重试当前阶段" : "修复计划阻断项",exact:true}).click();
+    await expect(page.getByTestId("workflow-stage")).toHaveText("Daedalus 正在规划并冻结验收检查");
+    expect(actions).toBe(1);
+  });
+}

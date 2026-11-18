@@ -39,6 +39,30 @@ IssueCode = Literal[
 
 IMPLEMENTATION_TYPES = ("interface", "implement")
 
+# Only the primary deliverable names identify these exceptions. Acceptance text
+# describes how business behaviour is tested, so it must never classify coverage.
+_DELIVERY_PREFIX = re.compile(
+    r"^(?:(?:提供|交付|编写|准备|生成|建立|维护|提交|包含)\s*|"
+    r"(?:provide|deliver|write|create|prepare|generate|maintain|include)\s+)?"
+    r"(?:(?:可重复执行的|可重复运行的|可复现的|完整的|全面的|独立的|一套|一组|中文|英文)|"
+    r"(?:repeatable|reproducible|independent|complete|chinese|english)\s+)*", re.IGNORECASE,
+)
+_TEST_DELIVERABLE = re.compile(
+    r"自动化测试|自动化验收|测试套件|测试脚本|测试与验收|"
+    r"(?:unittest|pytest)\s+(?:suite|tests?)\b|automated\s+tests?\b|"
+    r"test(?:ing)?\s+(?:suites?|scripts?|cases?)\b", re.IGNORECASE,
+)
+_DOC_DELIVERABLE = re.compile(
+    r"(?:运行|使用|安装|部署)(?:说明|指南|文档)|技术文档|交付文档|README\b|"
+    r"(?:run|running|usage|installation|deployment)\s+(?:instructions?|guides?)\b|"
+    r"documentation\b|user\s+manual\b", re.IGNORECASE,
+)
+_IMPLEMENTATION_CLAUSE = re.compile(
+    r"(?:并|同时|以及|且|[;；。])\s*(?:实现|处理|支持|新增|创建|返回|保证)|"
+    r"\b(?:and|while)\s+(?:implement|process|support|create|return|enforce)\b", re.IGNORECASE,
+)
+_DELIVERY_TASK_TYPES = {"test": ("test", "integrate"), "doc": ("doc",)}
+
 _TERM_SPLIT = re.compile(r"[/、,，;；\s]+")
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 
@@ -156,24 +180,78 @@ def write_scope_problem(scope: str) -> str | None:
     return None
 
 
-def uncovered_design_elements(plan: Plan, req: Requirement, ds: Design) -> list[str]:
-    """Design elements with no implementation coverage.
+def coverage_obligations(text: str) -> tuple[str, ...]:
+    """Recognize explicit test/document deliverables; default to implementation.
 
-    An element is covered when an implementation/interface task names it
-    directly, or when every requirement it sources is covered by such a task.
+    This is a conservative planning rule, not semantic approval. A statement
+    about a business service remains implementation work even if its later
+    clauses mention tests or documentation. Both named deliverables need owners.
     """
-    implementation = [task for task in plan.tasks if task.type in IMPLEMENTATION_TYPES]
-    referenced = {source for task in implementation for source in task.sources}
-    req_ids = set(requirement_ids(req))
-    covered_req = {source for source in referenced if source in req_ids}
-    missing: list[str] = []
-    for element in ds.content["elements"]:
-        if element["id"] in referenced:
-            continue
-        sources = [source for source in element["sources"] if source in req_ids]
-        if not sources or not all(source in covered_req for source in sources):
-            missing.append(element["id"])
-    return missing
+    primary = _DELIVERY_PREFIX.sub("", text.strip(), count=1)
+    if (_IMPLEMENTATION_CLAUSE.search(primary) or
+            not (_TEST_DELIVERABLE.match(primary) or _DOC_DELIVERABLE.match(primary))):
+        return ("implementation",)
+    return tuple(kind for kind, pattern in (("test", _TEST_DELIVERABLE), ("doc", _DOC_DELIVERABLE))
+                 if pattern.search(primary))
+
+
+def _coverage_task_types(text: str) -> tuple[str, ...]:
+    extra = [kind for obligation in coverage_obligations(text)
+             for kind in _DELIVERY_TASK_TYPES.get(obligation, ())]
+    return (*IMPLEMENTATION_TYPES, *extra)
+
+
+def requirement_coverage_task_types(item: dict) -> tuple[str, ...]:
+    return _coverage_task_types(item["text"])
+
+
+def design_coverage_task_types(element: dict) -> tuple[str, ...]:
+    return _coverage_task_types(element["description"])
+
+
+def _direct_covering_tasks(plan: Plan, source_id: str, text: str) -> list[Task]:
+    linked = [task for task in plan.tasks if source_id in task.sources]
+    implementation = [task for task in linked if task.type in IMPLEMENTATION_TYPES]
+    if implementation:
+        return implementation
+    obligations = coverage_obligations(text)
+    if obligations == ("implementation",):
+        return []
+    if not all(any(task.type in _DELIVERY_TASK_TYPES[kind] for task in linked) for kind in obligations):
+        return []
+    allowed = _coverage_task_types(text)
+    return [task for task in linked if task.type in allowed]
+
+
+def requirement_covering_tasks(plan: Plan, item: dict) -> list[Task]:
+    return _direct_covering_tasks(plan, item["id"], item["text"])
+
+
+def uncovered_requirements(plan: Plan, req: Requirement) -> list[str]:
+    return [item["id"] for item in req.content["requirements"] if not requirement_covering_tasks(plan, item)]
+
+
+def design_covering_tasks(plan: Plan, req: Requirement, element: dict) -> list[Task]:
+    direct = _direct_covering_tasks(plan, element["id"], element["description"])
+    if direct:
+        return direct
+    items = {item["id"]: item for item in req.content["requirements"]}
+    sources = [items[source] for source in element["sources"] if source in items]
+    if coverage_obligations(element["description"]) == ("implementation",):
+        # A business design element retains its implementation obligation even
+        # when someone links it only to a document/test delivery requirement.
+        covering = [_direct_covering_tasks(plan, item["id"], "") for item in sources]
+    else:
+        covering = [requirement_covering_tasks(plan, item) for item in sources]
+    if not covering or not all(covering):
+        return []
+    selected = {task.task_id for tasks in covering for task in tasks}
+    return [task for task in plan.tasks if task.task_id in selected]
+
+
+def uncovered_design_elements(plan: Plan, req: Requirement, ds: Design) -> list[str]:
+    """Use direct deliverable owners or complete coverage of an element's sources."""
+    return [element["id"] for element in ds.content["elements"] if not design_covering_tasks(plan, req, element)]
 
 
 def scan_out_of_scope(req: Requirement, tasks: list[Task]) -> list[dict[str, str]]:
@@ -271,15 +349,17 @@ def validate_plan_semantics(plan: Plan, req: Requirement, ds: Design) -> PlanVal
                 )
             )
 
-    # 3. Requirement and design coverage by implementation or interface tasks.
-    implementation = [task for task in plan.tasks if task.type in IMPLEMENTATION_TYPES]
-    covered_req = {source for task in implementation for source in task.sources}
-    for req_id in req_ids:
-        if req_id not in covered_req:
+    # 3. Business implementation, with explicit test/document delivery exceptions.
+    missing_req = set(uncovered_requirements(plan, req))
+    for item in req.content["requirements"]:
+        req_id = item["id"]
+        if req_id in missing_req:
+            obligations = coverage_obligations(item["text"])
+            detail = "实现或接口任务" if obligations == ("implementation",) else "符合其测试、集成或文档交付类型的任务"
             drafts.append(
                 _draft(
                     "UNCOVERED_REQUIREMENT",
-                    f"需求 {req_id} 没有被任何实现或接口任务覆盖",
+                    f"需求 {req_id} 没有被任何{detail}覆盖",
                     source_id=req_id,
                 )
             )
@@ -287,7 +367,7 @@ def validate_plan_semantics(plan: Plan, req: Requirement, ds: Design) -> PlanVal
         drafts.append(
             _draft(
                 "UNCOVERED_DESIGN",
-                f"设计元素 {ds_id} 没有被任何实现或接口任务覆盖",
+                f"设计元素 {ds_id} 没有被适合其交付类型的任务覆盖，且其来源需求尚未全部覆盖",
                 source_id=ds_id,
             )
         )

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import keyword
+from pathlib import PurePosixPath
 from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -143,6 +145,37 @@ class AttemptPolicy(Contract):
     timeout_seconds: Positive = 120
 
 
+def validate_task_api_contracts(contracts, scopes):
+    """Validate declarations without importing execution policy into contracts."""
+    if contracts is None:
+        return
+
+    def bounded(value):
+        path = PurePosixPath(value)
+        return (bool(value) and value == path.as_posix() and not value.startswith(("/", "~"))
+                and "\\" not in value and ":" not in value and
+                all(part not in {".", "..", "__pycache__"} and not part.startswith(".")
+                    for part in path.parts))
+
+    def public(value):
+        return value.isidentifier() and not value.startswith("_") and not keyword.iskeyword(value)
+
+    for filename, exports in contracts.items():
+        path = PurePosixPath(filename)
+        if not bounded(filename) or path.suffix != ".py":
+            raise ValueError("api_contracts paths must be canonical bounded relative .py files")
+        if not any(bounded(scope.rstrip("/")) and
+                   (path == PurePosixPath(scope) or
+                    (not PurePosixPath(scope).suffix and path.is_relative_to(PurePosixPath(scope))))
+                   for scope in scopes):
+            raise ValueError("api_contracts file must be inside this task's bounded write_scope")
+        for symbol, methods in exports.items():
+            if not public(symbol) or any(not public(method) for method in methods):
+                raise ValueError("api_contracts classes and methods must be public Python identifiers; do not list __init__")
+            if len(methods) != len(set(methods)):
+                raise ValueError("api_contracts method names must be unique")
+
+
 class Task(Contract):
     task_id: Id
     version: Positive
@@ -161,12 +194,17 @@ class Task(Contract):
     priority: NonNegative = 0
     policy: AttemptPolicy = Field(default_factory=AttemptPolicy)
     required: bool = True
+    api_contracts: dict[Id, dict[Id, list[Id]]] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     def semantic_content(self):
-        return self.model_dump(mode="json", exclude={"schema_version", "content_hash", "version"})
+        content = self.model_dump(mode="json", exclude={"schema_version", "content_hash", "version"})
+        if self.api_contracts is None:
+            content.pop("api_contracts", None)
+        return content
 
     @model_validator(mode="after")
     def valid_task(self):
+        validate_task_api_contracts(self.api_contracts, self.write_scope)
         if self.executor == self.reviewer:
             raise ValueError("executor cannot review its own task")
         if self.task_id in self.depends_on or len(self.depends_on) != len(set(self.depends_on)):

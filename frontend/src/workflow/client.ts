@@ -24,11 +24,15 @@ export type WorkflowStage =
   | "plan_approved" | "executing" | "execution_blocked"
   | "awaiting_acceptance" | "completed" | "error";
 export type WorkflowAction = "approve_requirement" | "generate_design" | "approve_design"
-  | "generate_plan" | "approve_plan" | "execute" | "accept_run";
+  | "generate_plan" | "generate_plan_revision" | "approve_plan" | "execute" | "accept_run";
 export type WorkflowModelPreference = "auto" | "offline" | "online";
 export interface WorkflowSnapshot {
   workflow_id: string;
   run_id: string;
+  successor_workflow_id?: string;
+  successor_run_id?: string;
+  source_workflow_id?: string;
+  source_run_id?: string;
   stage: WorkflowStage;
   model_mode?: "offline" | "online";
   plan_bound?: boolean;
@@ -36,7 +40,9 @@ export interface WorkflowSnapshot {
   pending_model_role?: AgentRole | null;
   updated_at?: string;
   design_revision?: { round: number; limit: number; started_at: string; finding_count: number };
-  error: { code: string; message: string; action?: WorkflowAction | null } | null;
+  error: { code: string; message: string; action?: WorkflowAction | null; role_id?: string; task_kind?: string; task_id?: string; error_code?: string; request_id?: string } | null;
+  progress?: { role_id: string; task_kind: string; task_id?: string; completed?: number; total?: number; message: string } | null;
+  pending_action?: WorkflowAction | null;
   requirement: Requirement;
   design: Design | null;
   design_review: unknown;
@@ -60,19 +66,37 @@ export class WorkflowApiError extends Error {
 }
 
 export class WorkflowClient {
-  constructor(private readonly baseUrl = "") {}
+  constructor(private readonly baseUrl = "", private readonly requestTimeoutMs = 15_000) {}
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { Accept: "application/json", ...(init?.body ? {"Content-Type": "application/json"} : {}), ...init?.headers },
-    });
-    if (!response.ok) {
-      let body: {error?: {code?: string; message?: string}} = {};
-      try { body = await response.json(); } catch { /* HTTP status remains useful. */ }
-      throw new WorkflowApiError(body.error?.code ?? `HTTP_${response.status}`, body.error?.message ?? "后端请求失败", response.status);
+  private async request<T>(path: string, init?: RequestInit, timeoutMs = this.requestTimeoutMs): Promise<T> {
+    const controller = new AbortController();
+    const externalSignal = init?.signal;
+    const abort = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) abort();
+    else externalSignal?.addEventListener("abort", abort, {once: true});
+    let timedOut = false;
+    const timer = setTimeout(() => {timedOut = true; controller.abort();}, timeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        ...init, signal: controller.signal,
+        headers: { Accept: "application/json", ...(init?.body ? {"Content-Type": "application/json"} : {}), ...init?.headers },
+      });
+      if (!response.ok) {
+        let body: {error?: {code?: string; message?: string}} = {};
+        try { body = await response.json(); } catch { /* HTTP status remains useful. */ }
+        if (controller.signal.aborted) throw controller.signal.reason;
+        throw new WorkflowApiError(body.error?.code ?? `HTTP_${response.status}`, body.error?.message ?? "后端请求失败", response.status);
+      }
+      return await response.json() as T;
+    } catch (error) {
+      if (externalSignal?.aborted) throw error;
+      if (timedOut) throw new WorkflowApiError("BACKEND_REQUEST_TIMEOUT", "后端响应超时；请求可能已被接收，请等待状态恢复后再操作。", 0);
+      if (error instanceof TypeError) throw new WorkflowApiError("BACKEND_CONNECTION_LOST", "暂时无法连接后端，请检查服务和网络。", 0);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", abort);
     }
-    return await response.json() as T;
   }
 
   getAgents(signal?: AbortSignal): Promise<{agents: AgentSetting[]}> {
@@ -81,12 +105,12 @@ export class WorkflowClient {
   saveAgent(role: AgentRole, update: AgentSettingUpdate): Promise<AgentSetting> {
     return this.request(`/api/settings/agents/${encodeURIComponent(role)}`, {method: "PUT", body: JSON.stringify(update)});
   }
-  testAgent(role: AgentRole): Promise<{ok: boolean; message: string; model?: string; elapsed_ms?: number | null}> {
-    return this.request(`/api/settings/agents/${encodeURIComponent(role)}/test`, {method: "POST"});
+  testAgent(role: AgentRole, timeoutSeconds = 900): Promise<{ok: boolean; message: string; model?: string; elapsed_ms?: number | null}> {
+    return this.request(`/api/settings/agents/${encodeURIComponent(role)}/test`, {method: "POST"}, (timeoutSeconds + 5) * 1000);
   }
   listModels(role: AgentRole, baseUrl: string, key: string): Promise<{models: string[]}> {
     return this.request(`/api/settings/agents/${encodeURIComponent(role)}/models`, {
-      method: "POST", signal: AbortSignal.timeout(15_000),
+      method: "POST",
       body: JSON.stringify({base_url: baseUrl.trim(), ...(key.trim() ? {api_key: key.trim()} : {})}),
     });
   }
@@ -94,8 +118,7 @@ export class WorkflowClient {
     return this.request("/api/workflows", {method: "POST", body: JSON.stringify({requirement, allow_synthetic: allowSynthetic, model_mode: modelMode})});
   }
   get(id: string, signal?: AbortSignal): Promise<WorkflowSnapshot> {
-    const timeout = AbortSignal.timeout(12_000);
-    return this.request(`/api/workflows/${encodeURIComponent(id)}`, {signal: signal ? AbortSignal.any([signal, timeout]) : timeout});
+    return this.request(`/api/workflows/${encodeURIComponent(id)}`, {signal});
   }
   action(id: string, action: WorkflowAction, operationId: string): Promise<WorkflowSnapshot> {
     return this.request(`/api/workflows/${encodeURIComponent(id)}/actions`, {method: "POST", body: JSON.stringify({action, operation_id: operationId})});
@@ -109,3 +132,4 @@ export function describeApiError(error: unknown): string {
   if (error instanceof DOMException && error.name === "TimeoutError") return "请求超时，请稍后刷新。";
   return error instanceof Error ? error.message : "无法连接后端，请检查服务是否启动。";
 }
+

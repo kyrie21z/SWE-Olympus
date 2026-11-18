@@ -33,7 +33,7 @@ export function workflowStageIndex(snapshot: WorkflowSnapshot): number {
   if (snapshot.stage !== "error") return stageIndex(snapshot.stage);
   const action = snapshot.error?.action ?? snapshot.retry_action;
   if (action === "generate_design" || action === "approve_design") return 1;
-  if (action === "generate_plan" || action === "approve_plan") return 2;
+  if (action === "generate_plan" || action === "generate_plan_revision" || action === "approve_plan") return 2;
   if (action === "execute") return 3;
   if (action === "accept_run") return 4;
   if (snapshot.plan_bound) return 3;
@@ -47,3 +47,4 @@ export function agentUpdate(baseUrl: string, model: string, timeout: number, key
 export function readableJson(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? "暂无内容";
 }
+

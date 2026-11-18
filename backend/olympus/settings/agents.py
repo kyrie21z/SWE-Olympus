@@ -27,7 +27,7 @@ class AgentSettingsUpdate(BaseModel):
     base_url: str | None = Field(default=None, max_length=2048)
     model: str | None = Field(default=None, max_length=160)
     api_key: SecretStr | None = None
-    timeout_seconds: int | None = Field(default=None, strict=True, ge=1, le=300)
+    timeout_seconds: int | None = Field(default=None, strict=True, ge=1, le=900)
     clear_api_key: StrictBool = False
 
     @field_validator("base_url")
@@ -141,7 +141,7 @@ class AgentSettingsStore:
             (role_id,),
         ).fetchone()
         if row is None:
-            return AgentSettings(role_id=role_id)
+            return AgentSettings(role_id=role_id, timeout_seconds=300 if role_id == "Momus" else 120)
         return AgentSettings(
             role_id=role_id, base_url=row[0], model=row[1], api_key=SecretStr(row[2]), timeout_seconds=row[3],
         )

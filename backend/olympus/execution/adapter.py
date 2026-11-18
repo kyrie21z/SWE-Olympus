@@ -27,6 +27,8 @@ from olympus.reviews.common import ReviewRecord
 
 from .models import ExecutionReceipt, Job
 from .policy import validate_python
+from .profile import IMPLEMENTATION_FILE_SUFFIXES
+from .source_metadata import CHECK_DRIVER, build_source_metadata
 
 
 def bytes_hash(data: bytes) -> str:
@@ -105,6 +107,94 @@ class LocalPythonExecutor:
         return refs + [Ref(object_id=artifact.artifact_id, version=job.receipt.generation,
                            content_hash=artifact.content_hash)
                        for artifact, job in self._upstream(task_id).values()]
+
+    def _previous_attempt_context(self, job: Job) -> dict | None:
+        """Give an authorized new generation bounded facts, never old success or test source."""
+        if job.receipt.generation <= 1:
+            return None
+        with self._lock:
+            candidates = [previous for previous in self._jobs.values()
+                          if previous.done.is_set() and previous.receipt.run_id == job.receipt.run_id
+                          and previous.task.task_id == job.task.task_id
+                          and previous.receipt.task_id == job.task.task_id
+                          and previous.task.content_hash == previous.receipt.task_hash == job.task.content_hash
+                          and previous.receipt.acceptance_hash == job.acceptance.content_hash
+                          and previous.receipt.generation < job.receipt.generation
+                          and previous.receipt.state in {"succeeded", "failed", "cancelled"}]
+            if not candidates:
+                return None
+            previous = max(candidates, key=lambda item: item.receipt.generation)
+            receipt = previous.receipt.model_copy(deep=True)
+        try:
+            directory = resolve_scoped(self.root, receipt.attempt_id)
+            work = resolve_scoped(directory, "work")
+        except (OSError, ValueError):
+            return None
+
+        def verified_bytes(path, expected, limit):
+            try:
+                with path.open("rb") as stream:
+                    data = stream.read(limit + 1)
+                return data if len(data) <= limit and bytes_hash(data) == expected else None
+            except OSError:
+                return None
+
+        failed = []
+        for index, entry in enumerate(receipt.check_outputs):
+            if entry.get("exit_code") in {None, 0}:
+                continue
+            try:
+                log = resolve_scoped(directory, f"check_{index}.log")
+                data = verified_bytes(log, entry.get("log_hash"), 1048576)
+            except (OSError, ValueError):
+                data = None
+            failed.append({"check_id": str(entry.get("check_id", ""))[:160],
+                           "exit_code": entry["exit_code"],
+                           "output_tail": data[-4096:].decode("utf-8", "replace") if data is not None else "",
+                           "output_verified": data is not None})
+            if len(failed) >= 8:
+                break
+        files, used, omitted = {}, 0, []
+        for relative, expected in sorted(receipt.file_hashes.items()):
+            try:
+                path = resolve_scoped(work, relative)
+                if not any(path == resolve_scoped(work, scope) or path.is_relative_to(resolve_scoped(work, scope))
+                           for scope in job.task.write_scope):
+                    continue
+                if path.suffix not in IMPLEMENTATION_FILE_SUFFIXES or any(part.startswith(".") for part in Path(relative).parts):
+                    continue
+                data = verified_bytes(path, expected, 65536)
+                if data is None or len(files) >= 12 or used + len(data) > 131072:
+                    if len(omitted) < 12:
+                        omitted.append(relative)
+                    continue
+                files[relative] = {"sha256": expected, "content": data.decode("utf-8")}
+                used += len(data)
+            except (OSError, UnicodeError, ValueError):
+                continue  # Unavailable or unverified bytes are never sent as repair evidence.
+        context = {
+            "attempt_id": receipt.attempt_id, "generation": receipt.generation,
+            "task_hash": receipt.task_hash, "state": receipt.state,
+            "error": (receipt.error or "")[-2048:], "failed_checks": failed,
+            "files": files, "omitted_files": omitted,
+            "instruction": "This is bounded evidence from the last terminal attempt of this exact task, "
+                           "not successful execution or authority to edit acceptance. Fix the concrete failed "
+                           "checks and review findings while preserving valid declarations and behavior. "
+                           "Return complete authorized changes; the host runs every frozen check again.",
+        }
+        record = receipt.review
+        if record is not None and record.review.verdict != "passed" and receipt.artifacts:
+            target = Ref(object_id=receipt.artifacts[0].artifact_id, version=receipt.generation,
+                         content_hash=receipt.artifacts[0].content_hash)
+            if (record.review.target == record.submission.artifact_ref == target and
+                    record.submission.reviewer_role == "Argus"):
+                context["review"] = {
+                    "verdict": record.review.verdict,
+                    "findings": [{"finding_id": finding.finding_id, "category": finding.category,
+                                  "severity": finding.severity, "message": finding.message[-2048:]}
+                                 for finding in record.submission.findings if finding.status == "open"][:8],
+                }
+        return context
 
     def dispatch(self, task_id: str, generation: int) -> ExecutionReceipt:
         return self.submit(task_id, generation)
@@ -341,6 +431,9 @@ class LocalPythonExecutor:
                 changes = []
                 job.receipt.model_mode = "not_called"
             else:
+                previous_attempt = self._previous_attempt_context(job)
+                if previous_attempt is not None:
+                    context["previous_attempt"] = previous_attempt
                 with self.model_budget() as budget:
                     result = self.implementer.propose(job.task, job.inputs,
                         run_id=self.scheduler.ctx.run.run_id, generation=job.receipt.generation,
@@ -357,7 +450,7 @@ class LocalPythonExecutor:
                 if not any(path == resolve_scoped(work, s) or path.is_relative_to(resolve_scoped(work, s))
                            for s in job.task.write_scope):
                     raise ValueError("implementation write outside task scope")
-                if path.suffix not in {".py", ".json", ".md", ".txt"}:
+                if path.suffix not in IMPLEMENTATION_FILE_SUFFIXES:
                     raise ValueError("unregistered implementation file type")
                 if any(part.startswith(".") for part in Path(relative).parts):
                     raise ValueError("hidden/control files are not implementation outputs")
@@ -381,18 +474,24 @@ class LocalPythonExecutor:
             (checks_dir / "fixtures.json").write_text(json.dumps(job.acceptance.fixtures), encoding="utf-8")
             for index, script in enumerate(job.acceptance.checks.values()):
                 (checks_dir / f"check_{index}.py").write_text(script, encoding="utf-8")
+            metadata = build_source_metadata({
+                relative: resolve_scoped(work, relative).read_bytes().decode("utf-8")
+                for relative in job.receipt.file_hashes
+            })
+            if any(metadata[relative]["sha256"] != expected
+                   for relative, expected in job.receipt.file_hashes.items()):
+                raise ValueError("source files changed while deriving acceptance metadata")
+            metadata_path = checks_dir / "source_metadata.json"
+            metadata_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
             driver = checks_dir / "driver.py"
-            driver.write_text(
-                "import runpy,sys\nsys.dont_write_bytecode=True\n"
-                "sys.path.insert(0,sys.argv[1])\nscript=sys.argv[2]\nsys.argv=[script]\n"
-                "runpy.run_path(script,run_name='__main__')\n", encoding="utf-8")
+            driver.write_text(CHECK_DRIVER, encoding="utf-8")
             frozen_checks = tree_hashes(checks_dir)
             self.ledger.mark_sent(job.receipt.request_id, job.receipt.attempt_id)
             for index, check_id in enumerate(job.acceptance.checks):
                 deadline = started + min(job.task.policy.timeout_seconds, self.timeout_cap)
                 output = directory / f"check_{index}.log"
                 command = [sys.executable, "-I", "-S", "-B", str(driver), str(work),
-                           str(checks_dir / f"check_{index}.py")]
+                           str(checks_dir / f"check_{index}.py"), str(metadata_path)]
                 env = {k: v for k, v in os.environ.items()
                        if k.upper() in {"SYSTEMROOT", "WINDIR", "PATH", "COMSPEC", "PATHEXT"}}
                 env.update(TEMP=str(work), TMP=str(work), PYTHONIOENCODING="utf-8")
