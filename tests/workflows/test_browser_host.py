@@ -391,7 +391,6 @@ def test_inventory_revision_processes_all_findings_in_one_action(tmp_path, bundl
             return {"design": {**previous, "elements": elements}}
         if "design_content" in manifest:
             reviews += 1
-            # The independent rereview only flags these on the first pass. Silence on later passes cannot close them.
             return {"verdict": "blocked", "findings": reported} if reviews == 1 else output
 
         elements = {element["id"] for element in manifest["design"]["elements"]}
@@ -420,6 +419,7 @@ def test_inventory_revision_processes_all_findings_in_one_action(tmp_path, bundl
             assert [item["finding_id"] for item in revision_checklists[1]] == all_ids
             assert revised["design"]["version"] == revised["design_review"]["review"]["target"]["version"]
             assert len(calls) == revised["snapshot"]["calls_used"]
+            assert reviews == 1
             if budget == 8:
                 assert len(calls) == budget
                 assert revised["error"]["code"] == "MODEL_BUDGET_EXHAUSTED"
@@ -434,6 +434,60 @@ def test_inventory_revision_processes_all_findings_in_one_action(tmp_path, bundl
                 before = len(calls)
                 action(client, workflow_id, "generate_design", expected, operation_id="batch-1")
                 assert len(calls) == before
+
+
+@pytest.mark.parametrize("break_traceability", [False, True])
+def test_inventory_design_repairs_validation_order_and_keeps_advice_nonblocking(tmp_path, bundle, break_traceability):
+    req = Requirement.model_validate_json((INVENTORY / "requirement.json").read_bytes())
+    base_design, _, _, _ = inventory_profile(req)
+    blocker = {"code": "MISSING-VALIDATION-ORDER", "severity": "blocker", "message":
+               "FR-011：格式合法且订单参数冲突时，应先于商品或库存错误返回 ORDER_CONFLICT。"}
+    advice = [{"code": "LOCK-DETAIL", "severity": "important", "message": "建议记录订单到商品的锁获取细节。"},
+              {"code": "SNAPSHOT-WORDING", "severity": "important", "message": "建议展开当前订单快照的示例。"}]
+    quote = "同订单号参数冲突且格式合法时，即使商品不存在或库存不足也返回 ORDER_CONFLICT；格式非法优先返回 INVALID_ARGUMENT。"
+
+    def respond(role, manifest, output):
+        if role == "Athena":
+            if not manifest["previous_design"]:
+                return {"design": base_design}
+            assert [f["message"] for f in manifest["findings"]] == [blocker["message"]]
+            return {"design": {**base_design, "elements": [*base_design["elements"], {
+                "id": "D-VALIDATION-ORDER", "description": "按已批准顺序校验预占。",
+                "sources": ["FR-011", "FR-UNKNOWN"] if break_traceability else ["FR-011"],
+                "acceptance_method": quote,
+            }]}}
+        if "design_content" in manifest:
+            if manifest["design"]["version"] == 1:
+                return {"verdict": "blocked", "findings": [blocker, *advice]}
+            # A second broad review could rephrase and re-raise the same issue.
+            return {"verdict": "blocked", "findings": [{**blocker, "code": "RESERVE-CHECK-PRECEDENCE"}]}
+        finding, = manifest["findings"]
+        assert finding["message"] == blocker["message"]
+        fixed = any(element["id"] == "D-VALIDATION-ORDER" for element in manifest["design"]["elements"])
+        return {"decisions": [{"finding_id": finding["finding_id"], "decision": "already_covered" if fixed else "keep",
+                               "citations": [{"requirement_id": "FR-011", "element_id": "D-VALIDATION-ORDER",
+                                              "section": "acceptance_method", "quote": quote}] if fixed else []}]}
+
+    with workflow_model_server(bundle, transform=respond) as (url, calls):
+        with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
+            configure_roles(client, url, "Athena", "Momus")
+            created = client.post("/api/workflows", json={"requirement": req.model_dump(mode="json"),
+                "allow_synthetic": True, "model_mode": "online"})
+            assert created.status_code == 200
+            workflow_id = created.json()["workflow_id"]
+            action(client, workflow_id, "approve_requirement", "requirement_approved")
+            expected = "design_review_blocked" if break_traceability else "design_pending_approval"
+            design = action(client, workflow_id, "generate_design", expected)
+            assert design["design"]["version"] == 2
+            report = design["design_review"]
+            assert [f["category"] for f in report["submission"]["findings"]
+                    if f["finding_id"] in report["blocking_finding_ids"]] == (["UNKNOWN_SOURCE"] if break_traceability else [])
+            assert [f["message"] for f in report["submission"]["findings"] if f["severity"] == "important"] == [
+                f["message"] for f in advice]
+            assert len(calls) == 5
+            assert sum("design_content" in call["manifest"] for call in calls) == 1
+            if not break_traceability:
+                action(client, workflow_id, "approve_design", "design_approved")
 
 
 def test_workflow_requires_gates_and_reports_missing_roles_in_online_mode(tmp_path, bundle):

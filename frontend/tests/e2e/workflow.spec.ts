@@ -59,6 +59,8 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   let designRequests = 0;
   let revisionComplete = false;
   const findings = ["检查重复预占", "检查库存守恒", "执行五轮并发验收", "检查库存快照隔离"];
+  const advice = {finding_id:"ADVICE",message:"建议补充库存快照示例",severity:"important",status:"open"};
+  const blockers = findings.map((message, index) => ({finding_id:`B-${index}`,message,severity:"blocker",status:"open"}));
   let snapshot: WorkflowSnapshot = {
     workflow_id:"WF-browser-contract",run_id:"RUN-browser-contract",stage:"requirement_pending",error:null,
     requirement:example,design:null,design_review:null,plan:null,plan_review:null,acceptance:{},executions:[],
@@ -68,9 +70,11 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
     const request = route.request();
     if (request.method() === "GET") {
       if (snapshot.stage === "design_generating" && designRequests === 1) {
-        snapshot = {...snapshot,stage:"design_review_blocked",design:bundle.design,design_review:{review:{verdict:"blocked",findings}}};
+        snapshot = {...snapshot,stage:"design_review_blocked",design:bundle.design,
+          design_review:{review:{verdict:"blocked"},submission:{findings:[...blockers,advice]}}};
       } else if (snapshot.stage === "design_generating" && revisionComplete) {
-        snapshot = {...snapshot,stage:"design_pending_approval",design:{...bundle.design,version:3},design_review:{review:{verdict:"passed",findings:[]}}};
+        snapshot = {...snapshot,stage:"design_pending_approval",design:{...bundle.design,version:3},
+          design_review:{review:{verdict:"passed"},submission:{findings:[advice]}}};
       }
       if (snapshot.stage === "plan_generating") snapshot = {...snapshot,stage:"plan_pending_approval",plan:bundle.plan,plan_review:{verdict:"passed",findings:[]},acceptance:{T01:{checks:{"check:T01":"assert 2 + 2 == 4"},fixtures:{},content_hash:"frozen-check-hash",author:"Momus"}}};
       return route.fulfill({json:view()});
@@ -105,13 +109,14 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   expect(created).toBe(true); expect(actions).toEqual([]);
   await page.getByRole("button", {name:"接纳此需求用于当前运行"}).click();
   await page.getByRole("button", {name:"生成设计规格",exact:true}).click();
-  await expect(page.getByText("还有 4 条审查意见待处理")).toBeVisible();
+  await expect(page.getByText("还有 4 条设计阻断项待修复")).toBeVisible();
   await expect(page.getByText(findings[3], {exact:true}).first()).toBeVisible();
   await expect(page.getByRole("button", {name:"批准当前设计"})).toHaveCount(0);
-  await page.getByRole("button", {name:"批量修订并复审"}).click();
-  await expect(page.getByRole("status")).toContainText("自动修订第 2 轮（最多 3 轮），本轮处理 2 条意见。");
+  await page.getByRole("button", {name:"修复阻断项并复审"}).click();
+  await expect(page.getByRole("status")).toContainText("自动修订第 2 轮（最多 3 轮），本轮处理 2 条阻断项。");
   revisionComplete = true;
   await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准设计");
+  await expect(page.getByText("设计审查通过，保留 1 条建议")).toBeVisible();
   expect(actions).toEqual(["approve_requirement","generate_design","generate_design"]);
   await expect(page.getByRole("button", {name:"批准当前设计"})).toBeEnabled();
   await page.reload();

@@ -53,7 +53,8 @@ class DesignWorkflow:
         for revision in range(max_revisions + 1):
             self._designs[ds.object_id] = ds.model_copy(deep=True)
             self._approvals.pop(ds.object_id, None)
-            report = self.reviewer.review(req, ds, run_id=run_id)
+            report = self.reviewer.review(req, ds, run_id=run_id, previous_review=reports[-1] if reports else None)
+            report = self.reviewer.recheck(req, ds, report, run_id=run_id)
             reports.append(report)
             self._reports[ds.object_id] = report.review.review_id
             if report.review.verdict == "passed":
@@ -62,8 +63,10 @@ class DesignWorkflow:
                 self._revision_counts[cycle] = revision
                 return outcome
             if revision < max_revisions:
+                blockers = [finding for finding in report.submission.findings
+                            if finding.finding_id in report.blocking_finding_ids]
                 ds = self.designer.generate(req, run_id=run_id, previous=ds,
-                                             findings=report.review.findings)
+                                             findings=blockers)
         outcome = DesignOutcome("blocked_awaiting_human", ds, tuple(reports), max_revisions)
         self._outcomes[cycle] = outcome
         self._revision_counts[cycle] = max_revisions
@@ -86,7 +89,9 @@ class DesignWorkflow:
         ds = self.designer.generate(req, run_id=run_id, previous=old.design, findings=findings)
         self._designs[ds.object_id] = ds.model_copy(deep=True)
         self._approvals.pop(ds.object_id, None)
-        report = self.reviewer.review(req, ds, run_id=run_id)
+        previous_review = old.reports[-1] if old.status == "blocked_awaiting_human" else None
+        report = self.reviewer.review(req, ds, run_id=run_id, previous_review=previous_review)
+        report = self.reviewer.recheck(req, ds, report, run_id=run_id)
         self._reports[ds.object_id] = report.review.review_id
         outcome = DesignOutcome("awaiting_approval" if report.review.verdict == "passed" else
                                 "blocked_awaiting_human", ds, (*old.reports, report), 1)

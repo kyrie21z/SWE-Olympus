@@ -459,13 +459,13 @@ class WorkflowService:
             if revision >= limit:
                 doc["stage"] = "design_review_blocked"
                 return
-            open_findings = [f for f in report.submission.findings if f.status == "open"]
+            blockers = [f for f in report.submission.findings if f.finding_id in report.blocking_finding_ids]
             revision += 1
             doc["design_revision"] = {"round": revision, "limit": limit, "started_at": phase_started,
-                                      "finding_count": len(open_findings)}
+                                      "finding_count": len(blockers)}
             with self._lock:
                 self._save(doc)
-            candidate = designer.generate(req, run_id=doc["run_id"], previous=design, findings=open_findings)
+            candidate = designer.generate(req, run_id=doc["run_id"], previous=design, findings=blockers)
             report = reviewer.review(req, candidate, run_id=doc["run_id"], previous_review=report)
             design = candidate
             doc["design"] = design.model_dump(mode="json")

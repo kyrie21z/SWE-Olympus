@@ -54,7 +54,8 @@ function Review({value}: {value: unknown}) {
   const label = {passed: "通过", blocked: "有阻断项", needs_revision: "待修订"}[verdict as "passed" | "blocked" | "needs_revision"] ?? verdict;
   return <div className="workflow-review"><Space wrap><strong>独立审查</strong><Tag color={verdict === "passed" ? "success" : "warning"}>{label}</Tag></Space>
     {findings.length > 0 && <ul>{findings.map((finding, i) => <li key={finding.id ?? i}>
-      {finding.closed ? <Tag color="success">已核对</Tag> : finding.severity === "blocker" ? <Tag color="error">阻断</Tag> : null}
+      {finding.closed ? <Tag color="success">已核对</Tag> : finding.severity === "blocker" ? <Tag color="error">阻断</Tag>
+        : finding.severity === "important" || finding.severity === "nit" ? <Tag>建议</Tag> : null}
       {finding.message}
       {finding.closure && <p>{finding.closure}</p>}
     </li>)}</ul>}
@@ -200,8 +201,10 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
   const canCreate = !workflowId || missingWorkflow;
   const failedOnline = snapshot?.stage === "error" && snapshot.model_mode === "online" && !planBound;
   const reviewTab = snapshot?.stage === "design_review_blocked" ? "design" : snapshot?.stage === "plan_review_blocked" ? "plan" : null;
+  const designAdvisories = reviewFindings(snapshot?.design_review)
+    .filter(finding => !finding.closed && (finding.severity === "important" || finding.severity === "nit"));
   const openFindings = reviewFindings(reviewTab === "design" ? snapshot?.design_review : snapshot?.plan_review)
-    .filter(finding => !finding.closed);
+    .filter(finding => !finding.closed && (reviewTab !== "design" || finding.severity === "blocker" || !finding.severity));
   const canStartOffline = (failedOnline || Boolean(reviewTab)) && snapshot?.model_mode === "online" && snapshot.offline_supported;
   const planNeedsRead = next?.action === "approve_plan" && !planRead;
   const requirementContent = <>
@@ -244,12 +247,16 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
       {storageError && <Alert type="warning" showIcon title={storageError} />}
       {snapshot?.error && <Alert type="error" showIcon title={snapshot.error.code === "OUTPUTSCHEMAERROR" ? "模型已返回，设计或任务规格未通过格式检查。请重试当前阶段。" : `${snapshot.error.code}：${snapshot.error.message}`}
         action={["AGENT_NOT_CONFIGURED", "OUTCOME_UNKNOWN"].includes(snapshot.error.code) ? <Button onClick={onSettings}>检查 API 设置</Button> : undefined} />}
-      {reviewTab && <Alert type="warning" showIcon title={openFindings.length ? `还有 ${openFindings.length} 条审查意见待处理` : "请查看当前审查报告"}
+      {reviewTab && <Alert type="warning" showIcon title={openFindings.length
+        ? `还有 ${openFindings.length} 条${reviewTab === "design" ? "设计阻断项待修复" : "审查意见待处理"}` : "请查看当前审查报告"}
         description={openFindings.length ? <>
           {reviewTab === "design" && snapshot?.design_revision && <div>本次自动修订已完成 {snapshot.design_revision.round} 轮。下列意见仍待处理。</div>}
           <ul>{openFindings.map((finding, i) => <li key={finding.id ?? i}>{finding.message}</li>)}</ul>
         </> : undefined}
         action={<Button onClick={() => setTab(reviewTab)}>查看审查报告</Button>} />}
+      {snapshot?.stage === "design_pending_approval" && designAdvisories.length > 0 && <Alert type="info" showIcon
+        title={`设计审查通过，保留 ${designAdvisories.length} 条建议`}
+        action={<Button onClick={() => setTab("design")}>查看设计报告</Button>} />}
       {canCreate && report?.requirement && <div className="workflow-actions">
         <Radio.Group aria-label="运行模式" value={modelMode} disabled={busy} onChange={event => setModelMode(event.target.value)}>
           <Radio value="offline">离线样例</Radio>
@@ -271,7 +278,7 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
       </div>
       {snapshot?.stage === "execution_blocked" && <p className="workflow-intro">请先在此运行控制台中处理失败任务或恢复暂停，再继续执行；结果未知的请求需要先核对。</p>}
       {generating && <p className="workflow-intro" role="status">
-        {designRevision && `自动修订第 ${designRevision.round} 轮（最多 ${designRevision.limit} 轮），本轮处理 ${designRevision.finding_count} 条意见。`}
+        {designRevision && `自动修订第 ${designRevision.round} 轮（最多 ${designRevision.limit} 轮），本轮处理 ${designRevision.finding_count} 条阻断项。`}
         {snapshot?.pending_model_role ? `正在等待 ${snapshot.pending_model_role} 返回。` : "正在后台处理。"}
         {elapsed > 0 ? `本阶段已用 ${elapsed} 秒。` : ""}页面会自动更新，也可以手动刷新状态。
       </p>}
