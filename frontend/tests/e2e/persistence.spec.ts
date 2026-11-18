@@ -47,7 +47,7 @@ test("structured REQ import survives reload and stays outside formal execution",
   });
   await page.getByRole("tab", { name: "编排执行", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "编排器尚未启动" }),
+    page.getByRole("heading", { name: "P6 运行控制台已接入" }),
   ).toBeVisible();
 });
 
