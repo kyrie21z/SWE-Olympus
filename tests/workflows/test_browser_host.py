@@ -185,17 +185,28 @@ def configure_roles(client, url, *roles):
 
 def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(tmp_path, bundle):
     argus_returns_invalid_format = True
+    revised_goal = "明确生成报名状态接口约定"
 
     def imperfect_output(role, manifest, output):
         if role == "Athena" and not manifest.get("format_correction"):
             return {"design": {**output["design"], "concurrency": ["expected a string"]}}
-        if role == "Momus" and manifest.get("plan", {}).get("version") == 1:
+        if role == "Momus" and "blockers" in manifest:
+            finding, = manifest["blockers"]
+            return {"decisions": [{"finding_id": finding["finding_id"], "decision": "resolved", "citations": [
+                {"task_id": "T01", "field": "goal", "quote": revised_goal},
+            ]}]}
+        if role == "Momus" and "plan" in manifest:
+            version = manifest["plan"]["version"]
             return {"verdict": "blocked", "findings": [{
-                "code": "UNCLEAR_TASK", "severity": "blocker", "task_id": "T01", "message": "Make T01 more explicit.",
+                "code": "UNCLEAR_TASK" if version == 1 else "REPEATED_TASK_OBJECTION",
+                "severity": "blocker", "task_id": "T01", "message": "Make T01 more explicit.",
+            }, {
+                "code": "FORMAT_SUGGESTION", "severity": "important", "task_id": "T01", "message": "List examples.",
             }]}
         if role == "Daedalus" and manifest.get("previous_tasks"):
+            assert len(manifest["review_findings"]) == 1
             tasks = output["tasks"]
-            return {"tasks": [{**tasks[0], "goal": "明确生成报名状态接口约定"}, *tasks[1:]]}
+            return {"tasks": [{**tasks[0], "goal": revised_goal}, *tasks[1:]]}
         if role == "Momus" and "tasks" in output and not manifest.get("format_correction"):
             return {"tasks": []}
         if role == "Argus" and argus_returns_invalid_format:
@@ -221,6 +232,9 @@ def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(t
             assert len(planned["plan"]["tasks"]) == len(planned["acceptance"]) == 8
             assert planned["plan"]["version"] == 2
             assert planned["plan"]["tasks"][0]["version"] == 2
+            assert planned["plan_review_record"]["blocking_finding_ids"] == []
+            assert [f["status"] for f in planned["plan_review_record"]["submission"]["findings"]] == ["closed", "open"]
+            assert sum("plan" in call["manifest"] and "blockers" not in call["manifest"] for call in calls) == 1
             assert "concurrency" in [call for call in calls if call["role"] == "Athena"][1]["manifest"]["format_correction"]
             assert [call for call in calls if call["role"] == "Daedalus"][1]["manifest"]["review_findings"]
             action(client, workflow_id, "approve_plan", "plan_approved")
@@ -391,7 +405,6 @@ def test_inventory_revision_processes_all_findings_in_one_action(tmp_path, bundl
             return {"design": {**previous, "elements": elements}}
         if "design_content" in manifest:
             reviews += 1
-            # The independent rereview only flags these on the first pass. Silence on later passes cannot close them.
             return {"verdict": "blocked", "findings": reported} if reviews == 1 else output
 
         elements = {element["id"] for element in manifest["design"]["elements"]}
@@ -420,6 +433,7 @@ def test_inventory_revision_processes_all_findings_in_one_action(tmp_path, bundl
             assert [item["finding_id"] for item in revision_checklists[1]] == all_ids
             assert revised["design"]["version"] == revised["design_review"]["review"]["target"]["version"]
             assert len(calls) == revised["snapshot"]["calls_used"]
+            assert reviews == 1
             if budget == 8:
                 assert len(calls) == budget
                 assert revised["error"]["code"] == "MODEL_BUDGET_EXHAUSTED"
@@ -434,6 +448,103 @@ def test_inventory_revision_processes_all_findings_in_one_action(tmp_path, bundl
                 before = len(calls)
                 action(client, workflow_id, "generate_design", expected, operation_id="batch-1")
                 assert len(calls) == before
+
+
+@pytest.mark.parametrize("break_traceability", [False, True])
+def test_inventory_design_repairs_validation_order_and_keeps_advice_nonblocking(tmp_path, bundle, break_traceability):
+    req = Requirement.model_validate_json((INVENTORY / "requirement.json").read_bytes())
+    base_design, _, _, _ = inventory_profile(req)
+    blocker = {"code": "MISSING-VALIDATION-ORDER", "severity": "blocker", "message":
+               "FR-011：格式合法且订单参数冲突时，应先于商品或库存错误返回 ORDER_CONFLICT。"}
+    advice = [{"code": "LOCK-DETAIL", "severity": "important", "message": "建议记录订单到商品的锁获取细节。"},
+              {"code": "SNAPSHOT-WORDING", "severity": "important", "message": "建议展开当前订单快照的示例。"}]
+    quote = "同订单号参数冲突且格式合法时，即使商品不存在或库存不足也返回 ORDER_CONFLICT；格式非法优先返回 INVALID_ARGUMENT。"
+
+    def respond(role, manifest, output):
+        if role == "Athena":
+            if not manifest["previous_design"]:
+                return {"design": base_design}
+            assert [f["message"] for f in manifest["findings"]] == [blocker["message"]]
+            return {"design": {**base_design, "elements": [*base_design["elements"], {
+                "id": "D-VALIDATION-ORDER", "description": "按已批准顺序校验预占。",
+                "sources": ["FR-011", "FR-UNKNOWN"] if break_traceability else ["FR-011"],
+                "acceptance_method": quote,
+            }]}}
+        if "design_content" in manifest:
+            if manifest["design"]["version"] == 1:
+                return {"verdict": "blocked", "findings": [blocker, *advice]}
+            # A second broad review could rephrase and re-raise the same issue.
+            return {"verdict": "blocked", "findings": [{**blocker, "code": "RESERVE-CHECK-PRECEDENCE"}]}
+        finding, = manifest["findings"]
+        assert finding["message"] == blocker["message"]
+        fixed = any(element["id"] == "D-VALIDATION-ORDER" for element in manifest["design"]["elements"])
+        return {"decisions": [{"finding_id": finding["finding_id"], "decision": "already_covered" if fixed else "keep",
+                               "citations": [{"requirement_id": "FR-011", "element_id": "D-VALIDATION-ORDER",
+                                              "section": "acceptance_method", "quote": quote}] if fixed else []}]}
+
+    with workflow_model_server(bundle, transform=respond) as (url, calls):
+        with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
+            configure_roles(client, url, "Athena", "Momus")
+            created = client.post("/api/workflows", json={"requirement": req.model_dump(mode="json"),
+                "allow_synthetic": True, "model_mode": "online"})
+            assert created.status_code == 200
+            workflow_id = created.json()["workflow_id"]
+            action(client, workflow_id, "approve_requirement", "requirement_approved")
+            expected = "design_review_blocked" if break_traceability else "design_pending_approval"
+            design = action(client, workflow_id, "generate_design", expected)
+            assert design["design"]["version"] == 2
+            report = design["design_review"]
+            assert [f["category"] for f in report["submission"]["findings"]
+                    if f["finding_id"] in report["blocking_finding_ids"]] == (["UNKNOWN_SOURCE"] if break_traceability else [])
+            assert [f["message"] for f in report["submission"]["findings"] if f["severity"] == "important"] == [
+                f["message"] for f in advice]
+            assert len(calls) == 5
+            assert sum("design_content" in call["manifest"] for call in calls) == 1
+            if not break_traceability:
+                action(client, workflow_id, "approve_design", "design_approved")
+
+
+def test_plan_checklist_survives_restart_and_rejects_missing_evidence(tmp_path, bundle):
+    revised_goal = "登记报名状态和可见返回值"
+    blocked_message = "T01 must record the visible return value."
+
+    def respond(role, manifest, output):
+        if role == "Daedalus" and manifest.get("previous_tasks"):
+            assert len(manifest["review_findings"]) == 1 and blocked_message in manifest["review_findings"][0]
+            tasks = output["tasks"]
+            return {"tasks": [{**tasks[0], "goal": revised_goal}, *tasks[1:]]}
+        if role == "Momus" and "blockers" in manifest:
+            finding, = manifest["blockers"]
+            quote = revised_goal if manifest["plan"]["version"] == 3 else "This text is absent from the task."
+            return {"decisions": [{"finding_id": finding["finding_id"], "decision": "resolved", "citations": [
+                {"task_id": "T01", "field": "goal", "quote": quote},
+            ]}]}
+        if role == "Momus" and "plan" in manifest:
+            return {"verdict": "blocked", "findings": [{
+                "code": "RETURN-VALUE", "severity": "blocker", "task_id": "T01", "message": blocked_message,
+            }]}
+        return output
+
+    database = tmp_path / "state.sqlite3"
+    with workflow_model_server(bundle, transform=respond) as (url, calls):
+        with TestClient(create_app(store=Store(database))) as client:
+            configure_roles(client, url, "Athena", "Momus", "Daedalus")
+            workflow_id = create(client, bundle.requirement)["workflow_id"]
+            action(client, workflow_id, "approve_requirement", "requirement_approved")
+            action(client, workflow_id, "generate_design", "design_pending_approval")
+            action(client, workflow_id, "approve_design", "design_approved")
+            blocked = action(client, workflow_id, "generate_plan", "plan_review_blocked")
+            assert blocked["plan"]["version"] == 2
+            assert not blocked["acceptance"]
+            finding_id, = blocked["plan_review_record"]["blocking_finding_ids"]
+        with TestClient(create_app(store=Store(database))) as client:
+            result = action(client, workflow_id, "generate_plan", "plan_pending_approval", operation_id="plan-repair")
+            assert result["plan"]["version"] == 3
+            finding, = result["plan_review_record"]["submission"]["findings"]
+            assert finding["finding_id"] == finding_id and finding["status"] == "closed"
+            assert revised_goal in finding["closure_reason"]
+            assert len(result["acceptance"]) == len(result["plan"]["tasks"])
+            assert sum("plan" in call["manifest"] and "blockers" not in call["manifest"] for call in calls) == 1
 
 
 def test_workflow_requires_gates_and_reports_missing_roles_in_online_mode(tmp_path, bundle):

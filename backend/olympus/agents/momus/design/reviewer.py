@@ -19,6 +19,10 @@ class FindingDraft(Contract):
     message: str = Field(min_length=1)
 
 
+class DesignFindingDraft(FindingDraft):
+    severity: Literal["blocker", "important"]
+
+
 _FINDING_CHECK = "program:verify-design-finding-quotes"
 _DESIGN_CHECKS = ["design:program", "momus:design-semantic"]
 _RECHECK_SCHEMA = {
@@ -56,7 +60,7 @@ def review_output_schema(finding_type=FindingDraft):
     }
 
 
-def semantic_findings(output: dict, target: Ref) -> list[FindingDraft]:
+def semantic_findings(output: dict, target: Ref, finding_type=FindingDraft) -> list[FindingDraft]:
     """Used by P4's two thin roles; does not replace CommonReviewer."""
     try:
         if output.get("verdict") not in {"passed", "blocked", "needs_revision"}:
@@ -65,7 +69,7 @@ def semantic_findings(output: dict, target: Ref) -> list[FindingDraft]:
             raise ValueError("stale review target")
         if not isinstance(output.get("findings"), list):
             raise ValueError("findings must be a list")
-        findings = [FindingDraft.model_validate(f) for f in output["findings"]]
+        findings = [finding_type.model_validate(f) for f in output["findings"]]
         if output["verdict"] != "passed" and not findings:
             raise ValueError("a non-passed verdict needs a reason")
         return findings
@@ -127,17 +131,47 @@ class DesignReviewer:
         # Revalidate program-owned objects instead of trusting model_copy updates.
         ds = Design.model_validate(ds.model_dump(mode="json"))
         carried = []
-        if previous_review is not None:
+        if previous_review is None:
+            semantic, result = self._first_review(req, ds, run_id)
+            evidence_id, mode = result.execution_record_id, result.mode
+        else:
             previous = previous_review.submission
             if (previous.input_refs != [req.ref()] or previous.target.object_id != ds.object_id or
                     previous.target.version + 1 != ds.version or previous.reviewer != "Momus"):
                 raise ValueError("design revision must follow the reviewed baseline")
-            # Recheck earlier fixes too: their quotations were valid for a different version.
-            carried = [finding.model_copy(update={"target": ds.ref(), "status": "open",
-                                                   "closed_by": None, "closure_reason": None})
-                       for finding in previous.findings if finding.raised_by == "Momus"]
+            # Keep the initial checklist and re-run the program checks for the new version.
+            semantic, evidence_id, mode = [], previous.review_id, previous.mode
+            for finding in previous.findings:
+                if finding.raised_by != "Momus":
+                    continue
+                update = {"target": ds.ref()}
+                if finding.severity == "blocker":
+                    update.update(status="open", closed_by=None, closure_reason=None)
+                carried.append(finding.model_copy(update=update))
         program = self.program_findings(req, ds)
-        schema = review_output_schema()
+        report_id = f"REV-{ds.object_id[:85]}-v{ds.version}-{ds.content_hash[:10]}"
+        findings = list(carried)
+        seen = set()
+        sources = [(f, "program") for f in program] + [(f, "Momus") for f in semantic]
+        for index, (finding, origin) in enumerate(sources):
+            key = (finding.code, finding.message, finding.severity)
+            if origin == "Momus" and key in seen:
+                continue
+            findings.append(ReviewFinding(finding_id=f"{report_id}-{index}", target=ds.ref(), category=finding.code,
+                                          severity=finding.severity, message=finding.message, raised_by=origin))
+            seen.add(key)
+        verdict = _verdict(findings)
+        submission = ReviewSubmission(
+            review_id=report_id, target=ds.ref(), author="Athena", reviewer="Momus",
+            reviewer_role="Momus", target_kind="DS", verdict=verdict, findings=findings,
+            evidence=["program:design-check", evidence_id], input_refs=[req.ref()],
+            required_checks=_DESIGN_CHECKS, passed_checks=_DESIGN_CHECKS if verdict == "passed" else [], mode=mode,
+        )
+        return self.common.validate_and_record(submission, current_target=ds.ref(),
+                                               expected_author="Athena", current_inputs=[req.ref()])
+
+    def _first_review(self, req: Requirement, ds: Design, run_id: str):
+        schema = review_output_schema(DesignFindingDraft)
         manifest = {
             "requirement": req.ref().model_dump(mode="json"), "requirement_content": req.content,
             "design": ds.ref().model_dump(mode="json"), "design_content": ds.content,
@@ -145,10 +179,13 @@ class DesignReviewer:
             "prompt": "Momus: independently check meaning, omissions and scope. Return verdict and findings "
                       "[{code,severity,message}]. Read every related element's description and acceptance_method before "
                       "claiming an omission; recognize equivalent wording and combine evidence across elements. "
-                      "Name applicable requirement IDs and the concrete missing behavior. Use one finding per "
-                      "independently verifiable gap. This is a design review; "
-                      "judge behavior and the stated method of acceptance, while executable checks are frozen after planning. "
-                      "Do not require code or a particular test layout. Report only issues grounded in the approved requirement. "
+                      "Use blocker only when an approved mandatory behavior, scope constraint, or acceptance outcome "
+                      "is contradicted or missing, and downstream work would fail or be unable to verify that requirement. "
+                      "For each blocker name the governing requirement ID, the exact obligation, and a concrete failing "
+                      "case. Use one finding per gap. Treat related IDs as context, not extra obligations. Mark optional "
+                      "clarifications and implementation refinements important. Do not report covered behavior because "
+                      "of wording or because an equivalent rule sits elsewhere. Executable tests and their layout "
+                      "belong to later stages. Ground findings in the approved requirement. "
                       "Do not read or invent author self-evaluation.",
         }
         request = RoleRunInput(
@@ -162,44 +199,30 @@ class DesignReviewer:
                                         allowed_input_keys=list(manifest)),
             budget=RunnerBudget(max_calls=30, calls_used=self.runner.ledger.total_calls_accounted(run_id)),
         )
-        result = self.runner.run(request, output_validator=lambda out: semantic_findings(out, ds.ref()))
-        report_id = f"REV-{ds.object_id[:85]}-v{ds.version}-{ds.content_hash[:10]}"
-        findings = list(carried)
-        known = {(f.category, f.message, f.severity) for f in carried}
-        sources = [(f, "program") for f in program] + [
-            (f, "Momus") for f in semantic_findings(result.structured_output, ds.ref())
-        ]
-        for index, (finding, origin) in enumerate(sources):
-            key = (finding.code, finding.message, finding.severity)
-            if origin == "Momus" and key in known:
-                continue
-            findings.append(ReviewFinding(finding_id=f"{report_id}-{index}", target=ds.ref(), category=finding.code,
-                                          severity=finding.severity, message=finding.message, raised_by=origin))
-            known.add(key)
-        verdict = _verdict(findings)
-        evidence = ["program:design-check", result.execution_record_id]
-        if carried and previous_review is not None:
-            evidence.append(previous_review.review.review_id)
-        submission = ReviewSubmission(
-            review_id=report_id, target=ds.ref(), author="Athena", reviewer="Momus",
-            reviewer_role="Momus", target_kind="DS", verdict=verdict,
-            findings=findings,
-            evidence=evidence, input_refs=[req.ref()],
-            required_checks=_DESIGN_CHECKS, passed_checks=_DESIGN_CHECKS if verdict == "passed" else [], mode=result.mode,
-        )
-        return self.common.validate_and_record(submission, current_target=ds.ref(),
-                                               expected_author="Athena", current_inputs=[req.ref()])
+        result = self.runner.run(request, output_validator=lambda out: semantic_findings(out, ds.ref(), DesignFindingDraft))
+        return semantic_findings(result.structured_output, ds.ref(), DesignFindingDraft), result
 
     def recheck(self, req: Requirement, ds: Design, report: ReviewRecord, *, run_id: str) -> ReviewRecord:
         """Challenge reported omissions against the unchanged design and preserve every decision."""
         original = report.submission
         if original.target != ds.ref() or original.input_refs != [req.ref()] or original.reviewer != "Momus":
             raise ValueError("finding recheck requires the same reviewed design and requirement")
+        if (original.verdict == "needs_revision" and _verdict(original.findings) == "passed"
+                and original.required_checks == _DESIGN_CHECKS and not self.program_findings(req, ds)):
+            # Earlier releases required advisory items to be fixed. Retain the report and apply the new gate.
+            updated = original.model_copy(update={
+                "review_id": f"{original.review_id[:143]}-ADVISORY",
+                "verdict": "passed", "passed_checks": _DESIGN_CHECKS,
+                "evidence": [*original.evidence, "program:design-advisory-gate"],
+            })
+            return self.common.validate_and_record(updated, current_target=ds.ref(),
+                                                   expected_author="Athena", current_inputs=[req.ref()])
         if self.runner.provider.mode != "real_model" or _FINDING_CHECK in original.evidence:
             return report
         program = {(f.code, f.message) for f in self.program_findings(req, ds)}
         candidates = {f.finding_id: f for f in original.findings
-                      if f.raised_by == "Momus" and f.status == "open" and (f.category, f.message) not in program}
+                      if f.raised_by == "Momus" and f.status == "open" and f.severity == "blocker"
+                      and (f.category, f.message) not in program}
         if not candidates:
             return report
 
@@ -207,12 +230,14 @@ class DesignReviewer:
             "requirement": req.content, "design": ds.content,
             "findings": [{"finding_id": f.finding_id, "message": f.message} for f in candidates.values()],
             "output_schema": _RECHECK_SCHEMA,
-            "prompt": "Re-evaluate each earlier finding against the exact current design, especially acceptance_method. "
+            "prompt": "Verify only the fixed checklist against the exact current design, especially acceptance_method. "
                       "Look for affirmative counterevidence to a claimed omission. Both design behavior and any acceptance "
                       "case mentioned in the finding must already be present. Use already_covered only when the complete "
                       "claimed issue is addressed. Cite the requirement ID, linked element, field and verbatim quote for "
                       "each part, including each applicable requirement named in the finding. For acceptance gaps cite "
-                      "acceptance_method. Keep partially addressed or unverified findings. Return one decision per finding, "
+                      "acceptance_method. Accept equivalent wording and evidence spread across elements; do not introduce "
+                      "new criteria beyond the approved requirement. Keep partially addressed or unverified findings. "
+                      "Return one decision per finding, "
                       "with citations [] for keep. No new issues or design changes. Return JSON.",
         }
 
@@ -270,7 +295,7 @@ class DesignReviewer:
                 continue
             finding.status, finding.closed_by = "closed", "Momus"
             finding.closure_reason = "\n".join(citations)
-        verdict = _verdict([f for f in findings if f.status == "open"])
+        verdict = _verdict(findings)
         checked = original.model_copy(update={
             "review_id": f"{original.review_id[:130]}-CHK-{key[:10]}", "verdict": verdict, "findings": findings,
             "evidence": [*original.evidence, _FINDING_CHECK, result.execution_record_id],
@@ -280,7 +305,5 @@ class DesignReviewer:
                                                expected_author="Athena", current_inputs=[req.ref()])
 
 
-def _verdict(findings):
-    if any(f.severity == "blocker" for f in findings):
-        return "blocked"
-    return "needs_revision" if findings else "passed"
+def _verdict(findings: list[ReviewFinding]) -> Literal["blocked", "passed"]:
+    return "blocked" if any(f.severity == "blocker" and f.status == "open" for f in findings) else "passed"

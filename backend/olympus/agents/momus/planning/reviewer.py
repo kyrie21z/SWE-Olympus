@@ -8,7 +8,9 @@ for a human.
 
 from __future__ import annotations
 
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 from olympus.agents.momus.design.reviewer import review_output_schema
 
@@ -30,11 +32,12 @@ from olympus.planning.validator import (
     scan_out_of_scope,
     validate_plan_semantics,
 )
-from olympus.reviews.common import CommonReviewer, ReviewFinding, ReviewSubmission
+from olympus.reviews.common import CommonReviewer, ReviewFinding, ReviewRecord, ReviewSubmission
 
 DAEDALUS = "Daedalus"
 MOMUS = "Momus"
 REVIEW_TASK_KIND = "plan_review"
+RECHECK_TASK_KIND = "plan_finding_check"
 PLAN_REVIEW_CHECKS = ["program:validate_plan_semantics", "momus:semantic-review"]
 
 
@@ -50,6 +53,7 @@ class PlanReview(Contract):
     validation: PlanValidationReport
     findings: list[SemanticFinding]
     revision_recommended: bool
+    record: ReviewRecord
 
 
 class PlanningOutcome(Contract):
@@ -63,6 +67,29 @@ class PlanningOutcome(Contract):
     revisions_used: NonNegative
     halted_reason: Id | None = None
     findings: list[str]
+
+
+class TaskCitation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: Id
+    field: Literal["goal", "type", "sources", "inputs", "outputs", "depends_on", "checks",
+                   "write_scope", "executor", "reviewer", "resources"]
+    quote: Id
+
+
+class FindingDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: Id
+    decision: Literal["keep", "resolved"]
+    citations: list[TaskCitation]
+
+
+class PlanFindingChecks(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[FindingDecision]
 
 
 class MomusPlanReviewer:
@@ -170,6 +197,9 @@ class MomusPlanReviewer:
                 "You are Momus, independent plan reviewer. Compare the full requirement, design and tasks; "
                 "check meaning, omissions, coverage, granularity and out-of-scope work. "
                 "Return JSON verdict and findings (code, severity=blocker/important, task_id or null, message). "
+                "For each blocker identify an approved requirement or design obligation, the affected task, "
+                "and how the current plan fails to produce or verify the required outcome. Use one finding per "
+                "gap, check equivalent coverage in other tasks, and mark refinements important. "
                 "Never close findings or grant human approval. Empty findings means no observed defect, "
                 "not proof of implementation. Do not return private reasoning."
             ),
@@ -201,7 +231,69 @@ class MomusPlanReviewer:
         )
         return self._semantic_findings(result.structured_output, plan), result
 
-    def review(self, plan: Plan, req: Requirement, ds: Design) -> PlanReview:
+    def _recheck_agent(self, plan: Plan, req: Requirement, ds: Design, previous_review: ReviewRecord,
+                       blockers: list[ReviewFinding]) -> str:
+        schema = PlanFindingChecks.model_json_schema()
+        manifest = {
+            "prompt": (
+                "Momus: verify only the listed blockers against the revised tasks and approved inputs. "
+                "Return one decision per finding_id. Use resolved only when the required outcome is covered, with "
+                "verbatim evidence from current tasks. Cite the entire scalar field or one exact list entry. Coverage may move "
+                "to a different task. Use keep for partially addressed or unverifiable findings, with citations []. "
+                "Check equivalent wording and combine evidence across tasks. Do not add findings or stricter criteria."
+            ),
+            "plan_review_ref": previous_review.review.review_id,
+            "plan": plan.ref().model_dump(mode="json"),
+            "requirement_content": req.content,
+            "design_content": ds.content,
+            "tasks": [task.model_dump(mode="json") for task in plan.tasks],
+            "blockers": [{"finding_id": item.finding_id, "message": item.message} for item in blockers],
+            "output_schema": schema,
+        }
+        expected = {item.finding_id for item in blockers}
+
+        def validate(output):
+            try:
+                result = PlanFindingChecks.model_validate(output)
+                ids = [row.finding_id for row in result.decisions]
+                if len(ids) != len(expected) or set(ids) != expected:
+                    raise ValueError("one decision is required for every supplied blocker")
+            except ValueError as exc:
+                raise OutputSchemaError("invalid plan finding verification",
+                                        hint="请为首审清单中的每条阻断返回一条复核判断，并保留 finding_id。") from exc
+            return result
+
+        result = self.runner.run(
+            RoleRunInput(
+                role_id=MOMUS, task_kind=RECHECK_TASK_KIND, task_id=plan.object_id,
+                logical_task_id=f"LOG-RECHECK-{plan.object_id[:105]}-V{plan.version}-{plan.content_hash[:10]}",
+                generation=plan.version, input_manifest=manifest,
+                input_refs=[req.ref(), ds.ref(), previous_review.review.target, plan.ref()],
+                output_schema=schema,
+                permissions=RolePermissions(role_id=MOMUS, allowed_task_kinds=[RECHECK_TASK_KIND],
+                                            allowed_input_keys=list(manifest)),
+            ), output_validator=validate)
+        tasks = {task.task_id: task for task in plan.tasks}
+        by_id = {finding.finding_id: finding for finding in blockers}
+        for row in validate(result.structured_output).decisions:
+            if row.decision != "resolved" or not row.citations:
+                continue
+            citations = []
+            for citation in row.citations:
+                task = tasks.get(citation.task_id)
+                field_value = getattr(task, citation.field, ())
+                matches = citation.quote == field_value if isinstance(field_value, str) else citation.quote in field_value
+                if not citation.quote.strip() or not matches:
+                    break
+                citations.append(f"{citation.task_id} · {citation.field}：{citation.quote}")
+            if len(citations) == len(row.citations):
+                finding = by_id[row.finding_id]
+                finding.status, finding.closed_by = "closed", self.reviewer_id
+                finding.closure_reason = "\n".join(citations)
+        return result.execution_record_id
+
+    def review(self, plan: Plan, req: Requirement, ds: Design, *,
+               previous_review: ReviewRecord | None = None) -> PlanReview:
         report = validate_plan_semantics(plan, req, ds)
         findings = [
             SemanticFinding(
@@ -227,34 +319,46 @@ class MomusPlanReviewer:
                 )
             )
 
+        common_findings = [
+            self._record_finding(plan, finding, index, "program")
+            for index, finding in enumerate(findings)
+        ]
         execution_evidence = []
         mode = self.mode
         checks = ["program:validate_plan_semantics", "momus:heuristic-review"]
-        if self.runner is not None:
+        if previous_review is not None:
+            previous = previous_review.submission
+            if (previous.target_kind != "PLAN" or previous.author != DAEDALUS or previous.reviewer != self.reviewer_id
+                    or previous.input_refs != [req.ref(), ds.ref()] or previous.target.object_id != plan.object_id
+                    or previous.target.version + 1 != plan.version):
+                raise ValueError("plan revision must follow the reviewed baseline")
+            carried = []
+            for finding in previous.findings:
+                if finding.raised_by != self.reviewer_id:
+                    continue
+                update = {"target": plan.ref()}
+                if finding.severity == "blocker":
+                    update.update(status="open", closed_by=None, closure_reason=None)
+                carried.append(finding.model_copy(update=update))
+            common_findings.extend(carried)
+            blockers = [finding for finding in carried if finding.severity == "blocker"]
+            execution_evidence.append(previous.review_id)
+            if blockers and self.runner is not None and self.runner.provider.mode == "real_model":
+                execution_evidence.append(self._recheck_agent(plan, req, ds, previous_review, blockers))
+            findings.extend(SemanticFinding(code=f.category, severity=f.severity, message=f.message)
+                            for f in carried if f.status == "open")
+            mode, checks = previous.mode, previous.required_checks
+        elif self.runner is not None:
             agent_findings, role_result = self._run_agent(plan, req, ds)
+            common_findings.extend(self._record_finding(plan, finding, index, self.reviewer_id)
+                                   for index, finding in enumerate(agent_findings, len(findings)))
             findings.extend(agent_findings)
             execution_evidence.append(role_result.execution_record_id)
             mode = role_result.mode
             checks = list(PLAN_REVIEW_CHECKS)
 
-        if any(finding.severity == "blocker" for finding in findings):
-            verdict = "blocked"
-        elif findings:
-            verdict = "needs_revision"
-        else:
-            verdict = "passed"
-
-        common_findings = [
-            ReviewFinding(
-                finding_id=f"F-{plan.object_id}-V{plan.version}-{idx}",
-                target=plan.ref(),
-                category=finding.code,
-                severity=finding.severity,
-                message=f"[{finding.severity}] {finding.code}: {finding.message}",
-                raised_by=self.reviewer_id,
-            )
-            for idx, finding in enumerate(findings)
-        ]
+        blocked = any(item.severity == "blocker" and item.status == "open" for item in common_findings)
+        verdict = "blocked" if blocked else "passed"
         submission = ReviewSubmission(
             review_id=f"REV-{plan.object_id[:100]}-V{plan.version}"[:160],
             target=plan.ref(),
@@ -284,7 +388,17 @@ class MomusPlanReviewer:
             review=record.review,
             validation=report,
             findings=findings,
-            revision_recommended=verdict != "passed",
+            revision_recommended=blocked,
+            record=record,
+        )
+
+    @staticmethod
+    def _record_finding(plan, finding, index, origin):
+        task = f" ({finding.task_id})" if finding.task_id else ""
+        return ReviewFinding(
+            finding_id=f"F-{plan.object_id[:115]}-V{plan.version}-{index}",
+            target=plan.ref(), category=finding.code, severity=finding.severity,
+            message=f"[{finding.severity}] {finding.code}{task}: {finding.message}", raised_by=origin,
         )
 
     def close_blockers(
@@ -326,7 +440,7 @@ class MomusPlanReviewer:
                         finding.finding_id,
                         actor=closer,
                         reason="closed via close_blockers",
-                        authorized_non_authors=set(self.authorized_closers),
+                        authorized_non_authors={self.reviewer_id, *self.authorized_closers},
                     )
         return closed
 
@@ -347,16 +461,20 @@ class PlanningWorkflow:
             raise ValueError("单次规划最多允许一轮内容修订")
         return limit
 
-    def run(self, req: Requirement, ds: Design, max_revisions: int | None = None) -> PlanningOutcome:
+    def run(self, req: Requirement, ds: Design, max_revisions: int | None = None, *,
+            initial_plan: Plan | None = None, previous_review: ReviewRecord | None = None,
+            on_review: Callable[[Plan, ReviewRecord], None] | None = None) -> PlanningOutcome:
         limit = self.max_revisions if max_revisions is None else self._revision_limit(max_revisions)
-        plan = self.planner.plan(req, ds)
+        plan = initial_plan or self.planner.plan(req, ds)
         reviews: list[Review] = []
         revisions_used = 0
         while True:
-            result = self.reviewer.review(plan, req, ds)
+            result = self.reviewer.review(plan, req, ds, previous_review=previous_review)
             if result.review.target != plan.ref():
                 raise ValueError("review target must bind the reviewed plan version")
             reviews.append(result.review)
+            if on_review is not None:
+                on_review(plan, result.record)
             if result.review.verdict == "passed":
                 return PlanningOutcome(
                     status="passed",
@@ -369,6 +487,8 @@ class PlanningWorkflow:
                     revisions_used=revisions_used,
                     findings=[],
                 )
+            blockers = [item.message for item in result.record.submission.findings
+                        if item.finding_id in result.record.blocking_finding_ids]
             if revisions_used >= limit:
                 return PlanningOutcome(
                     status="blocked_awaiting_human",
@@ -380,10 +500,11 @@ class PlanningWorkflow:
                     reviews=reviews,
                     revisions_used=revisions_used,
                     halted_reason="REVISION_LIMIT_REACHED",
-                    findings=list(result.review.findings),
+                    findings=blockers,
                 )
-            revised = self.planner.revise_plan(plan, result.review.findings, req, ds)
+            revised = self.planner.revise_plan(plan, blockers, req, ds)
             if revised.version != plan.version + 1 or revised.ref() == plan.ref():
                 raise ValueError("revision must bump the plan version and its content hash")
             plan = revised
+            previous_review = result.record
             revisions_used += 1

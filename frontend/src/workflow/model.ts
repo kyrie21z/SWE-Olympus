@@ -13,10 +13,10 @@ export const BUSY_STAGES = new Set<WorkflowStage>(["design_generating", "plan_ge
 export const NEXT_ACTION: Partial<Record<WorkflowStage, {action: WorkflowAction; label: string; tab: string}>> = {
   requirement_pending: {action: "approve_requirement", label: "接纳此需求用于当前运行", tab: "requirement"},
   requirement_approved: {action: "generate_design", label: "生成设计规格", tab: "design"},
-  design_review_blocked: {action: "generate_design", label: "批量修订并复审", tab: "design"},
+  design_review_blocked: {action: "generate_design", label: "修复阻断项并复审", tab: "design"},
   design_pending_approval: {action: "approve_design", label: "批准当前设计", tab: "design"},
   design_approved: {action: "generate_plan", label: "生成任务计划", tab: "plan"},
-  plan_review_blocked: {action: "generate_plan", label: "按审查意见修订计划", tab: "plan"},
+  plan_review_blocked: {action: "generate_plan", label: "修复计划阻断项", tab: "plan"},
   plan_pending_approval: {action: "approve_plan", label: "批准计划与验收检查", tab: "plan"},
   plan_approved: {action: "execute", label: "执行全部任务", tab: "execution"},
   execution_blocked: {action: "execute", label: "继续执行", tab: "execution"},

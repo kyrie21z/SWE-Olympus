@@ -49,16 +49,6 @@ ONLINE_ROLES = {
 
 
 class LocalPlanner(DaedalusPlanner):
-    def __init__(self, runner, previous=None, findings=None):
-        super().__init__(runner)
-        self.previous = previous
-        self.findings = findings
-
-    def plan(self, req, ds):
-        if self.previous is not None:
-            return self.revise_plan(self.previous, self.findings or [], req, ds)
-        return super().plan(req, ds)
-
     @staticmethod
     def _materialize(output, req, ds, mode):
         plan = DaedalusPlanner._materialize(output, req, ds, mode)
@@ -459,13 +449,13 @@ class WorkflowService:
             if revision >= limit:
                 doc["stage"] = "design_review_blocked"
                 return
-            open_findings = [f for f in report.submission.findings if f.status == "open"]
+            blockers = [f for f in report.submission.findings if f.finding_id in report.blocking_finding_ids]
             revision += 1
             doc["design_revision"] = {"round": revision, "limit": limit, "started_at": phase_started,
-                                      "finding_count": len(open_findings)}
+                                      "finding_count": len(blockers)}
             with self._lock:
                 self._save(doc)
-            candidate = designer.generate(req, run_id=doc["run_id"], previous=design, findings=open_findings)
+            candidate = designer.generate(req, run_id=doc["run_id"], previous=design, findings=blockers)
             report = reviewer.review(req, candidate, run_id=doc["run_id"], previous_review=report)
             design = candidate
             doc["design"] = design.model_dump(mode="json")
@@ -510,17 +500,34 @@ class WorkflowService:
             doc["acceptance"] = generate_acceptance(runner, req, design, saved)
             doc["stage"] = "plan_pending_approval"
             return
-        planner = LocalPlanner(runner, previous=saved, findings=review.findings if review else None)
-        outcome = PlanningWorkflow(planner, MomusPlanReviewer(runner=runner)).run(req, design)
+        planner = LocalPlanner(runner)
+        workflow = PlanningWorkflow(planner, MomusPlanReviewer(runner=runner))
+
+        def remember_review(plan, report):
+            doc["plan"] = plan.model_dump(mode="json")
+            doc["plan_review"] = report.review.model_dump(mode="json")
+            doc["plan_review_record"] = report.model_dump(mode="json")
+            with self._lock:
+                self._save(doc)
+
+        previous = ReviewRecord.model_validate(doc["plan_review_record"]) if doc.get("plan_review_record") else None
+        if saved and previous:
+            previous = CommonReviewer().validate_and_record(previous.submission, current_target=saved.ref(),
+                                                             expected_author="Daedalus",
+                                                             current_inputs=[req.ref(), design.ref()])
+            if previous.review != review or saved.requirement != req.ref() or saved.design != design.ref():
+                raise WorkflowError("计划修订所引用的审查、需求或设计版本已变化")
+            blockers = [f.message for f in previous.submission.findings if f.finding_id in previous.blocking_finding_ids]
+            candidate = planner.revise_plan(saved, blockers, req, design)
+            outcome = workflow.run(req, design, max_revisions=0, initial_plan=candidate,
+                                   previous_review=previous, on_review=remember_review)
+        else:
+            outcome = workflow.run(req, design, initial_plan=saved, on_review=remember_review)
         if outcome.status != "passed":
-            doc["plan"] = outcome.plan.model_dump(mode="json")
-            doc["plan_review"] = outcome.review.model_dump(mode="json")
             doc["stage"] = "plan_review_blocked"
             return
         validate_executable_plan(outcome.plan)
         PlanService().prepare(req, design, outcome.plan)
-        doc["plan"] = outcome.plan.model_dump(mode="json")
-        doc["plan_review"] = outcome.review.model_dump(mode="json")
         doc["acceptance"] = generate_acceptance(runner, req, design, outcome.plan)
         doc["stage"] = "plan_pending_approval"
 
@@ -529,6 +536,13 @@ class WorkflowService:
         review = Review.model_validate(doc["plan_review"])
         if review.verdict != "passed" or review.target != plan.ref() or review.reviewer != "Momus":
             raise WorkflowError("独立计划审查未通过")
+        if doc.get("plan_review_record"):
+            record = ReviewRecord.model_validate(doc["plan_review_record"])
+            current = CommonReviewer().validate_and_record(record.submission, current_target=plan.ref(),
+                                                            expected_author="Daedalus",
+                                                            current_inputs=[req.ref(), design.ref()])
+            if current.review != review:
+                raise WorkflowError("计划审查结果与当前版本不一致")
         package = PlanService().prepare(req, design, plan)
         for task in plan.tasks:
             FrozenAcceptance.model_validate(doc["acceptance"][task.task_id]).verify(task)

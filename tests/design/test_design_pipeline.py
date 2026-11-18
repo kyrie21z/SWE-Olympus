@@ -132,6 +132,26 @@ def test_model_design_blocker_and_single_revision_limit(bundle):
         flow.generate(bundle.requirement, max_revisions=2)
 
 
+def test_design_advice_is_reviewed_without_triggering_revision(bundle):
+    flow = workflow(bundle, review={"verdict": "needs_revision", "findings": [
+        {"code": "STYLE", "severity": "important", "message": "Clarify the response wording."},
+    ]})
+    out = flow.generate(bundle.requirement)
+    report, = out.reports
+    assert out.status == "awaiting_approval" and out.revisions_used == 0
+    assert report.review.verdict == "passed" and report.blocking_finding_ids == []
+    assert report.submission.findings[0].status == "open"
+    assert len(flow.designer.runner.ledger.entries()) == 2
+
+    # Stored advice-only reports from the previous gate can resume on the same version.
+    old = report.submission.model_copy(update={"verdict": "needs_revision", "passed_checks": []})
+    legacy = flow.reviewer.common.validate_and_record(old, current_target=out.design.ref())
+    resumed = flow.reviewer.recheck(bundle.requirement, out.design, legacy, run_id="RUN-legacy")
+    assert resumed.review.verdict == "passed" and resumed.review.target == out.design.ref()
+    assert resumed.submission.findings == legacy.submission.findings
+    assert len(flow.designer.runner.ledger.entries()) == 2
+
+
 @pytest.mark.parametrize("output", [{"design": {}}, {"summary": "done"}])
 def test_invalid_athena_output_never_falls_back_to_fixture(bundle, output):
     runner = AgentRunner(MockProvider(fixtures={"Athena:design": {"output": output}}))

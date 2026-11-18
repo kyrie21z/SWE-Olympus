@@ -154,9 +154,6 @@ def test_p2_single_revision_rebinds_the_review_to_the_new_version(bundle):
     assert runtime.common.get(first.review_id).review.target == runtime.planner.initial.ref()
 
     review_entries = [entry for entry in runtime.ledger.entries() if entry.task_kind == "plan_review"]
-    assert {entry.logical_task_id for entry in review_entries} == {
-        f"LOG-REVIEW-{runtime.planner.initial.object_id}-V1",
-        f"LOG-REVIEW-{outcome.plan.object_id}-V2",
-    }
+    assert [entry.logical_task_id for entry in review_entries] == [f"LOG-REVIEW-{runtime.planner.initial.object_id}-V1"]
     assert all(entry.status == "succeeded" for entry in review_entries)
-    assert len(runtime.records.list_by_role("Momus")) == 2
+    assert len(runtime.records.list_by_role("Momus")) == 1
