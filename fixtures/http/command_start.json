@@ -11,8 +11,8 @@
   },
   "status": 200,
   "headers": {
-    "x-olympus-durability": "memory",
-    "x-olympus-recorded-events": "0"
+    "x-olympus-durability": "sqlite",
+    "x-olympus-recorded-events": "2"
   },
   "body": {
     "schema_version": "1.0",

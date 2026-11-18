@@ -11,10 +11,13 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from olympus.api.service import RunQueryService, build_service
 from olympus.commands.runtime import CommandService
+from olympus.commands.runtime.journal import StoreJournal
 from olympus.contracts.models import Command, Event, Receipt, Run
 
 router = APIRouter(prefix="/api", tags=["runs"])
@@ -24,9 +27,12 @@ def get_runs(request: Request) -> RunQueryService:
     """从应用状态取服务实例；测试可以注入临时数据库，不依赖全局单例。"""
     runs = getattr(request.app.state, "runs", None)
     if runs is None:
-        runs = build_service(execution_view=getattr(request.app.state, "execution_view", None))
-        request.app.state.runs = runs
-        request.app.state.store = runs.store
+        with getattr(request.app.state, "services_lock", nullcontext()):
+            runs = getattr(request.app.state, "runs", None)
+            if runs is None:
+                runs = build_service(execution_view=getattr(request.app.state, "execution_view", None))
+                request.app.state.runs = runs
+                request.app.state.store = runs.store
     return runs
 
 
@@ -34,8 +40,12 @@ def get_commands(request: Request) -> CommandService:
     """命令服务与查询服务共用同一个运行态注册表。"""
     commands = getattr(request.app.state, "commands", None)
     if commands is None:
-        commands = CommandService(get_runs(request).registry)
-        request.app.state.commands = commands
+        with getattr(request.app.state, "services_lock", nullcontext()):
+            commands = getattr(request.app.state, "commands", None)
+            if commands is None:
+                runs = get_runs(request)
+                commands = CommandService(runs.registry, journal=StoreJournal(runs.store))
+                request.app.state.commands = commands
     return commands
 
 
@@ -73,9 +83,21 @@ def read_trace(run_id: str, runs: RunQueryService = Depends(get_runs)) -> dict:
 def read_execution(
     run_id: str,
     task_id: str,
+    request: Request,
     attempt_id: str | None = Query(None),
     runs: RunQueryService = Depends(get_runs),
 ) -> dict:
+    if runs._execution_view is None:
+        from olympus.api.workflow_routes import get_workflows
+        from olympus.api.errors import ExecutionNotFound, ExecutionViewUnavailable
+        runs.snapshot(run_id)
+        workflows = get_workflows(request)
+        try:
+            return workflows.project_run(run_id, task_id, attempt_id)
+        except KeyError as exc:
+            raise ExecutionViewUnavailable("此运行未绑定工作流执行查询服务") from exc
+        except ValueError as exc:
+            raise ExecutionNotFound("此任务尚无执行记录") from exc
     return runs.executions(run_id, task_id, attempt_id)
 
 
@@ -97,10 +119,10 @@ def capabilities(commands: CommandService = Depends(get_commands)) -> dict:
         "schema_version": "1.0",
         "durability": commands.durability,
         "command_journal": commands.journal_name,
-        "recovery": {"mode": "single-process", "strategy": "events+snapshot"},
+        "recovery": {"mode": "single-process", "strategy": "events+snapshot+runtime"},
         "notes": [
-            "命令只作用于进程内运行态；重启后回退到最近一次已提交快照",
-            "多事件持久化待存储层提供批量写入接口后接入 StoreJournal",
+            "命令回执、完整事件批次、快照和计划绑定以 SQLite 事务持久化",
+            "重启恢复已提交状态；在途模型和工具结果须核对，不自动重发",
             "恢复要求事件链与快照逐条对得上，否则返回 RECOVERY_GAP",
         ],
     }

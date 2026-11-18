@@ -10,12 +10,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 
 from olympus.api.errors import RunNotFound
-from olympus.commands.runtime.errors import PlanNotBound
-from olympus.commands.runtime.journal import CommandJournal, NullJournal
+from olympus.commands.runtime.errors import CommandPersistenceUnavailable, CommandStateConflict, PlanNotBound
+from olympus.commands.runtime.journal import CommandJournal, NullJournal, StoreJournal
 from olympus.contracts.models import Command, Receipt
 from olympus.orchestrator.recovery import RuntimeRegistry
+from olympus.storage.sqlite import ConcurrentCommit, IdempotencyConflict
 
 
 @dataclass(frozen=True)
@@ -53,15 +55,74 @@ class CommandService:
                 detail={"run_id": command.run_id},
             )
 
+        with runtime.lock, runtime.bus._lock:
+            with runtime.scheduler._lock if runtime.scheduler is not None else nullcontext():
+                if isinstance(self._journal, StoreJournal):
+                    return self._submit_durable(runtime, command)
+                before = len(runtime.ctx.events)
+                receipt = runtime.bus.dispatch(command)
+                recorded = 0
+                if receipt.status == "accepted":
+                    recorded = self._journal.record(runtime.ctx.events[before:], command)
+                return CommandOutcome(receipt, self.durability, recorded)
+
+    def _submit_durable(self, runtime, command: Command) -> CommandOutcome:
+        journal = self._journal
+        try:
+            persisted = journal.store.snapshot(runtime.run_id)
+            if persisted != runtime.ctx.run:
+                # The executor may have recorded budget/verifying events while
+                # waiting for Argus. Flush them under the same scheduler lock
+                # before establishing the command's compare-and-swap baseline.
+                runtime.persist(expected=persisted)
+        except ConcurrentCommit as exc:
+            self._registry.forget(runtime.run_id)
+            raise CommandStateConflict("运行已被其他请求更新，请刷新后重试") from exc
+        except Exception as exc:
+            raise CommandPersistenceUnavailable("运行进度未能持久化，此命令尚未执行") from exc
+        try:
+            previous = journal.lookup(command)
+        except IdempotencyConflict:
+            return CommandOutcome(
+                Receipt(
+                    operation_id=command.operation_id, run_id=command.run_id,
+                    status="rejected", reason_code="conflict",
+                    state_revision=runtime.ctx.run.state_revision,
+                ), self.durability, 0,
+            )
+        if previous is not None:
+            return CommandOutcome(previous, self.durability, 0)
+        checkpoint = runtime.checkpoint()
+        baseline = checkpoint["run"]
         before = len(runtime.ctx.events)
-        receipt = runtime.bus.dispatch(command)
-
-        recorded = 0
-        if receipt.status == "accepted":
-            recorded = self._journal.record(runtime.ctx.events[before:], command)
-
-        return CommandOutcome(
-            receipt=receipt,
-            durability=self._journal.durability,
-            recorded_events=recorded,
-        )
+        try:
+            receipt = runtime.bus.dispatch(command)
+            if receipt.status != "accepted":
+                # A failed handler must not leave a partial in-memory transition.
+                runtime.restore_checkpoint(checkpoint)
+                receipt = receipt.model_copy(update={"state_revision": baseline.state_revision})
+            events = runtime.ctx.events[before:]
+            committed, recorded = journal.commit(
+                events, command, receipt, expected=baseline, runtime_state=runtime.export_state(),
+            )
+            if committed != receipt or (events and recorded == 0):
+                # A second process won the operation race; discard our speculative effects.
+                runtime.restore_checkpoint(checkpoint)
+                self._registry.forget(runtime.run_id)
+            return CommandOutcome(committed, self.durability, recorded)
+        except IdempotencyConflict:
+            runtime.restore_checkpoint(checkpoint)
+            self._registry.forget(runtime.run_id)
+            return CommandOutcome(
+                Receipt(
+                    operation_id=command.operation_id, run_id=command.run_id,
+                    status="rejected", reason_code="conflict", state_revision=baseline.state_revision,
+                ), self.durability, 0,
+            )
+        except ConcurrentCommit as exc:
+            runtime.restore_checkpoint(checkpoint)
+            self._registry.forget(runtime.run_id)
+            raise CommandStateConflict("运行已被其他请求更新，请刷新后重试") from exc
+        except Exception as exc:
+            runtime.restore_checkpoint(checkpoint)
+            raise CommandPersistenceUnavailable("命令未能持久化，状态已回滚，请稍后重试") from exc

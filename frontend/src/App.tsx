@@ -3,7 +3,6 @@ import {
   Alert,
   App,
   Avatar,
-  Badge,
   Breadcrumb,
   Button,
   Card,
@@ -19,7 +18,6 @@ import {
   Spin,
   Steps,
   Table,
-  Tabs,
   Tag,
   Tooltip,
   Upload,
@@ -41,13 +39,14 @@ import {
   Menu as MenuIcon,
   Plus,
   Search,
+  Settings2,
   ShieldCheck,
   Sparkles,
   UploadCloud,
   Workflow,
   X,
 } from "lucide-react";
-import { navItems, pages, roles, type Page } from "./shell-config";
+import { navItems, pages, type Page } from "./shell-config";
 import {
   downloadText,
   readRequirementFile,
@@ -64,6 +63,8 @@ import {
 } from "./imports/storage";
 import { InspectionPanel, RequirementDetails } from "./imports/Preview";
 import { P6ControlConsole } from "./p6/P6ControlConsole";
+import { AgentSettings } from "./workflow/AgentSettings";
+import { WorkflowWorkspace } from "./workflow/WorkflowWorkspace";
 
 const guideItems = [
   {
@@ -82,7 +83,7 @@ const guideItems = [
     key: "3",
     label: "导入成功后会立即执行吗？",
     children:
-      "不会。当前只保存本地导入记录并进行基础检查。来源、确认授权、依赖版本由后续服务端核验，正式接纳后才进入 Athena 设计、Daedalus 任务分解、审查与真人确认，再由 Zeus 编排。",
+      "不会。导入后先保存本地记录。在工作台建立运行并明确接纳需求后，可使用各 Agent 配置的 API 生成设计和计划；每个阶段需审查和真人批准后，才能继续受控执行。",
   },
   {
     key: "4",
@@ -151,7 +152,6 @@ export function OlympusApp() {
   const [selectedId, setSelectedId] = useState<string>();
   const [mobileNav, setMobileNav] = useState(false);
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState("requirement");
   const [help, setHelp] = useState(false);
   const [pending, setPending] = useState<ImportedRequirement>();
   const [pendingReport, setPendingReport] = useState<Inspection>();
@@ -214,7 +214,6 @@ export function OlympusApp() {
   }
   function openProject(item: ImportedRequirement) {
     setSelectedId(item.id);
-    setTab("requirement");
     navigate("workstation");
   }
   function clearFile() {
@@ -401,6 +400,7 @@ export function OlympusApp() {
               onClick={() => setHelp(true)}
             />
           </Tooltip>
+          <Tooltip title="Agent API 设置"><Button onClick={() => navigate("agents")} aria-label="Agent API 设置" icon={<Settings2 size={18} />}><span className="api-settings-label">API 设置</span></Button></Tooltip>
           <Tooltip title="项目仓库">
             <Button
               type="text"
@@ -443,7 +443,7 @@ export function OlympusApp() {
                     : page === "console"
                       ? "以单次运行快照查看阶段、业务 DAG、Agent 泳道与人工命令边界。"
                     : page === "agents"
-                      ? "明确职责，独立复核，让协作有据可依。"
+                      ? "为各角色独立配置模型接口，保存后可测试连接。"
                       : "了解输入文件与正式流程的边界。"}
             </p>
           </div>
@@ -521,15 +521,15 @@ export function OlympusApp() {
                 },
                 {
                   title: "设计与计划",
-                  value: 0,
-                  detail: "等待后续生成服务接入",
+                  value: "—",
+                  detail: "在项目工作台按运行查看",
                   icon: FileText,
                   tone: "purple",
                 },
                 {
                   title: "执行任务",
-                  value: 0,
-                  detail: "编排尚未启动",
+                  value: "—",
+                  detail: "在运行控制台查看实际进度",
                   icon: Workflow,
                   tone: "teal",
                 },
@@ -718,9 +718,9 @@ export function OlympusApp() {
                   <div className="service-note">
                     <Clock3 size={16} />
                     <p>
-                      当前为文件交接与预览。
+                      导入后在项目工作台建立运行。
                       <br />
-                      正式接纳、生成和执行服务待接入。
+                      先配置 Agent API，再逐阶段确认与执行。
                     </p>
                   </div>
                 </Card>
@@ -808,7 +808,6 @@ export function OlympusApp() {
                   value={current.id}
                   onChange={(id) => {
                     setSelectedId(id);
-                    setTab("requirement");
                   }}
                   options={imports.map((item) => ({
                     value: item.id,
@@ -816,132 +815,13 @@ export function OlympusApp() {
                   }))}
                 />
               </Card>
-              <Card
-                className="workflow-card"
-                title={
-                  <span className="card-title">
-                    <Workflow size={18} />
-                    流程预览
-                  </span>
-                }
-                extra={<Badge status="default" text="尚未执行" />}
-              >
-                <FlowPreview captured />
-              </Card>
-              <Card className="workspace-body">
-                <Tabs
-                  activeKey={tab}
-                  onChange={setTab}
-                  items={[
-                    {
-                      key: "requirement",
-                      label: "导入规格",
-                      children: (
-                        <>
-                          <div className="section-toolbar">
-                            <div>
-                              <h3>需求交接内容</h3>
-                              <p>原文件只读，补充说明独立保存。</p>
-                            </div>
-                            <Space>
-                              <Button
-                                icon={<Download size={15} />}
-                                onClick={() =>
-                                  downloadText(
-                                    current.fileName,
-                                    current.sourceText,
-                                  )
-                                }
-                              >
-                                导出原文件
-                              </Button>
-                              <Button onClick={newImport}>导入新版本</Button>
-                            </Space>
-                          </div>
-                          {currentReport ? (
-                            <>
-                              <InspectionPanel report={currentReport} />
-                              <RequirementDetails
-                                file={current}
-                                report={currentReport}
-                              />
-                              <Collapse
-                                items={[
-                                  {
-                                    key: "raw",
-                                    label: "查看原始文件",
-                                    children: (
-                                      <pre className="raw-source">
-                                        {current.sourceText}
-                                      </pre>
-                                    ),
-                                  },
-                                ]}
-                              />
-                            </>
-                          ) : (
-                            <Spin />
-                          )}
-                          <div className="next-stage">
-                            <span>下一步：服务端接纳后进入 Athena 设计。</span>
-                            <Button disabled>生成设计规格（待接入）</Button>
-                          </div>
-                        </>
-                      ),
-                    },
-                    {
-                      key: "design",
-                      label: "设计规格",
-                      children: (
-                        <EmptyPanel
-                          title="设计规格尚未生成"
-                          description="需求经正式接纳后，由 Athena 生成带来源与验收方式的设计规格 DS。"
-                        />
-                      ),
-                    },
-                    {
-                      key: "plan",
-                      label: "任务分解",
-                      children: (
-                        <EmptyPanel
-                          title="任务计划尚未生成"
-                          description="Daedalus 根据设计形成任务与依赖，审查和真人确认通过后进入编排。"
-                        />
-                      ),
-                    },
-                    {
-                      key: "execution",
-                      label: "编排执行",
-                      children: (
-                        <>
-                          <EmptyPanel
-                            title="P6 运行控制台已接入"
-                            description="使用 P5 聚合视图查看阶段进度、只读业务 DAG、Agent 泳道、需求追踪与命令回执。"
-                          />
-                          <div className="empty-action">
-                            <Button
-                              type="primary"
-                              onClick={() => navigate("console")}
-                            >
-                              打开运行控制台
-                            </Button>
-                          </div>
-                        </>
-                      ),
-                    },
-                    {
-                      key: "acceptance",
-                      label: "验收",
-                      children: (
-                        <EmptyPanel
-                          title="暂无验收结果"
-                          description="仅依据程序检查、独立复核和真人验收展示结果。"
-                        />
-                      ),
-                    },
-                  ]}
-                />
-              </Card>
+              <WorkflowWorkspace
+                key={current.id}
+                file={current}
+                report={currentReport}
+                onNewImport={newImport}
+                onSettings={() => navigate("agents")}
+              />
             </>
           ) : (
             <Card>
@@ -957,35 +837,7 @@ export function OlympusApp() {
             </Card>
           ))}
         {page === "console" && <P6ControlConsole />}
-        {page === "agents" && (
-          <>
-            <div className="roles-intro">
-              <ShieldCheck size={21} />
-              <span>
-                职责预览：上一阶段负责需求确认；Zeus 是确定性程序，YOU
-                是真人。下列 Agent 尚未接入运行。
-              </span>
-            </div>
-            <div className="role-grid">
-              {roles.map(({ name, title, icon: Icon, color, text }) => (
-                <Card className="role-card" key={name}>
-                  <div className="role-top">
-                    <Avatar
-                      size={46}
-                      shape="square"
-                      className={`role-avatar ${color}`}
-                      icon={<Icon size={23} />}
-                    />
-                    <Tag>待接入</Tag>
-                  </div>
-                  <h2>{name}</h2>
-                  <span className="role-title">{title}</span>
-                  <p>{text}</p>
-                </Card>
-              ))}
-            </div>
-          </>
-        )}
+        {page === "agents" && <AgentSettings />}
         {page === "guide" && (
           <div className="guide-grid">
             <Card title="需求规格交接">
@@ -1042,12 +894,12 @@ export function OlympusApp() {
             {
               key: "scope",
               label: "当前能力",
-              children: "本地文件读取、预览、基础检查与记录保存",
+              children: "需求接纳、设计与计划生成、受控执行及人工验收",
             },
             {
               key: "next",
-              label: "后续接入",
-              children: "服务端确认核验、设计生成、任务分解与编排执行",
+              label: "模型配置",
+              children: "在协作角色页面为各 Agent 保存 API 根地址、模型和密钥",
             },
           ]}
         />

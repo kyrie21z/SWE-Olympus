@@ -7,14 +7,15 @@ permissions:
   contents: read
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 supports Ubuntu 24.04; ubuntu-latest may move to newer releases.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
@@ -25,8 +26,12 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: python scripts/project.py browser
-      - uses: actions/upload-artifact@v4
+      - name: Verify browser against real workflow API and Python execution
+        run: python scripts/verify_browser_workflow.py
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: browser-failure-evidence
-          path: frontend/test-results/
+          path: |
+            frontend/test-results/
+            .olympus/browser-workflow-*/

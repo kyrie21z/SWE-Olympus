@@ -62,6 +62,7 @@ import {
   commandAvailabilityFromView,
   commandTargets,
   createCommandForView,
+  currentStageIndex,
   deriveStagesFromView,
   deriveTraceRowsFromView,
   formatRunStatus,
@@ -336,10 +337,7 @@ export function P6ControlConsole({
   const completion = required
     ? Math.round((accepted / required) * 100)
     : 0;
-  const currentStage = Math.max(
-    0,
-    stages.findIndex((stage) => stage.status !== "accepted"),
-  );
+  const currentStage = currentStageIndex(stages);
   const commandDefinition =
     P6_COMMANDS.find((item) => item.action === commandAction) ??
     P6_COMMANDS[0];

@@ -1,0 +1,29 @@
+.agent-settings, .workflow-workspace { display: grid; gap: 18px; min-width: 0; }
+@media (max-width: 760px) { .api-settings-label { display: none; } }
+.workflow-workspace > .ant-card { min-width: 0; width: 100%; max-width: 100%; }
+.agent-settings-toolbar, .agent-api-heading, .workflow-status-heading, .workflow-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.agent-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.agent-api-card h2 { margin: 0 0 4px; font-size: 19px; }
+.agent-api-heading span, .agent-api-card p, .agent-api-fields small { color: #64748b; }
+.agent-api-fields { display: grid; gap: 10px; }
+.agent-api-fields > label { font-weight: 500; }
+.agent-api-fields small { font-size: 12px; line-height: 1.6; }
+.agent-api-options { display: flex; align-items: center; gap: 16px; }
+.workflow-actions { justify-content: flex-start; margin-top: 16px; }
+.workflow-status-heading { margin-bottom: 16px; }
+.workflow-status-heading h3 { margin: 0 0 6px; }
+.workflow-status-heading p { margin: 0; color: #64748b; }
+.workflow-steps { margin: 18px 0; }
+.workflow-intro { color: #64748b; line-height: 1.7; }
+.workflow-json { max-height: 420px; overflow: auto; margin: 0; padding: 15px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.workflow-script { max-height: 320px; }
+.workflow-artifact { display: grid; gap: 16px; min-width: 0; }
+.workflow-artifact h3 { margin: 6px 0 0; }
+.workflow-pending { padding: 32px 12px; text-align: center; }
+.workflow-pending h3 { margin-top: 16px; }
+.workflow-key { overflow-wrap: anywhere; }
+.workflow-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.workflow-summary-grid div { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
+.workflow-summary-grid strong { display: block; font-size: 22px; }
+.workflow-review { margin: 12px 0; }
+@media (max-width: 760px) { .agent-settings-grid { grid-template-columns: 1fr; } .workflow-summary-grid { grid-template-columns: 1fr; } .workflow-actions .ant-btn { max-width: 100%; height: auto; min-height: 32px; white-space: normal; } .workflow-workspace > .ant-card > .ant-card-head .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; padding: 12px 0; } .workflow-workspace > .ant-card > .ant-card-head .ant-card-head-title { min-width: 0; flex: 1 1 130px; } .workflow-workspace > .ant-card > .ant-card-head .ant-card-extra { margin-inline-start: 0; } }

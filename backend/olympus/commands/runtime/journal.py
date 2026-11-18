@@ -1,23 +1,12 @@
-"""命令事件的持久化插槽。
-
-现状：`NullJournal`——**明确地不写**，并通过 HTTP 响应头把这件事告诉调用方。
-
-为什么不直接写数据库？
-
-`Store.commit` 一次只写一条事件，而 `start` 之类的命令经 `scheduler.reconcile()`
-会产生多条（run 状态 + 每个被提升为 ready 的任务）。用现有接口落库只能二选一：
-丢掉中间事件，或者造出与事件日志不一致的快照——两者都违反"事件不可变、可回放"。
-
-因此这里先把边界留出来。等 P1 确认批量写入接口后，新增 `StoreJournal`
-实现同一个 `CommandJournal` 协议即可，`CommandService` 与 API 都不需要改。
-"""
+"""Explicit in-memory and atomic SQLite command journals."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Protocol
 
-from olympus.contracts.models import Command, Event
+from olympus.contracts.models import Command, Event, Receipt, Run
+from olympus.storage.sqlite import Store
 
 
 class CommandJournal(Protocol):
@@ -38,3 +27,35 @@ class NullJournal:
 
     def record(self, events: Sequence[Event], command: Command) -> int:
         return 0
+
+
+class StoreJournal:
+    """Commit an entire command and its runtime metadata in a single transaction."""
+
+    durability = "sqlite"
+    name = "sqlite"
+
+    def __init__(self, store: Store):
+        self.store = store
+
+    def lookup(self, command: Command) -> Receipt | None:
+        return self.store.command_receipt(command)
+
+    def commit(
+        self, events: Sequence[Event], command: Command, receipt: Receipt, *, expected: Run,
+        runtime_state: dict,
+    ) -> tuple[Receipt, int]:
+        return self.store.commit_command(
+            command, receipt, events, expected=expected, runtime_state=runtime_state,
+        )
+
+    def record(self, events: Sequence[Event], command: Command) -> int:
+        """Compatibility entry for trusted callers that already accepted a command."""
+        expected = self.store.snapshot(command.run_id)
+        final = events[-1].snapshot if events else expected
+        receipt = Receipt(
+            operation_id=command.operation_id, run_id=command.run_id,
+            status="accepted", reason_code="ok", state_revision=final.state_revision,
+        )
+        _, recorded = self.store.commit_command(command, receipt, events, expected=expected)
+        return recorded

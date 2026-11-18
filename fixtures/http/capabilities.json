@@ -3,15 +3,15 @@
   "headers": {},
   "body": {
     "schema_version": "1.0",
-    "durability": "memory",
-    "command_journal": "null",
+    "durability": "sqlite",
+    "command_journal": "sqlite",
     "recovery": {
       "mode": "single-process",
-      "strategy": "events+snapshot"
+      "strategy": "events+snapshot+runtime"
     },
     "notes": [
-      "命令只作用于进程内运行态；重启后回退到最近一次已提交快照",
-      "多事件持久化待存储层提供批量写入接口后接入 StoreJournal",
+      "命令回执、完整事件批次、快照和计划绑定以 SQLite 事务持久化",
+      "重启恢复已提交状态；在途模型和工具结果须核对，不自动重发",
       "恢复要求事件链与快照逐条对得上，否则返回 RECOVERY_GAP"
     ]
   }

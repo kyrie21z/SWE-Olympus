@@ -5,6 +5,7 @@ import traceabilityFixture from "../../../fixtures/plans/traceability_matrix.jso
 import type {
   Command,
   Plan,
+  Ref,
   Run,
   Task,
   TaskRuntime,
@@ -161,6 +162,11 @@ export interface P6StageView {
   title: string;
   description: string;
   status: P6StageStatus;
+}
+
+export function currentStageIndex(stages: P6StageView[]): number {
+  const pending = stages.findIndex((stage) => stage.status !== "accepted");
+  return pending < 0 ? Math.max(0, stages.length - 1) : pending;
 }
 
 export function deriveStages(run: Run, tasks: P6TaskView[]): P6StageView[] {
@@ -602,7 +608,7 @@ function syntheticTaskForProjection(
   return {
     schema_version: "1.0",
     task_id: projectionTask.task_id,
-    version: view.trace?.plan_ref.version ?? P6_PLAN.version,
+    version: view.plan?.version ?? view.trace?.plan_ref.version ?? P6_PLAN.version,
     content_hash: `dynamic-${projectionTask.task_id}`,
     type: projectionTask.type,
     goal: repair?.supersedes
@@ -629,8 +635,11 @@ function syntheticTaskForProjection(
 }
 
 export function buildTaskViewsFromView(view: RunView): P6TaskView[] {
+  const legacyRef = view.trace?.plan_ref;
+  const legacyFixtureMatches = legacyRef?.object_id === P6_PLAN.object_id &&
+    legacyRef.version === P6_PLAN.version && legacyRef.content_hash === P6_PLAN.content_hash;
   const planById = new Map(
-    P6_PLAN.tasks.map((task) => [task.task_id, task]),
+    (view.plan?.tasks ?? (legacyFixtureMatches ? P6_PLAN.tasks : [])).map((task) => [task.task_id, task]),
   );
   const runtimeById = new Map(
     view.snapshot.tasks.map((runtime) => [runtime.task_id, runtime]),
@@ -665,9 +674,17 @@ export function deriveStagesFromView(
   tasks: P6TaskView[],
 ): P6StageView[] {
   const run = view.snapshot;
-  const approved = new Set(
-    run.approved_package.map((reference) => reference.object_id),
-  );
+  const approved = (reference: Pick<Ref, "object_id" | "version" | "content_hash"> | undefined) =>
+    Boolean(reference && run.approved_package.some((candidate) =>
+      candidate.object_id === reference.object_id &&
+      candidate.version === reference.version &&
+      candidate.content_hash === reference.content_hash,
+    ));
+  const requirement = view.trace?.req_ref;
+  const design = view.trace?.ds_ref;
+  const plan = view.trace?.plan_ref;
+  const approvalDescription = (reference: typeof requirement, waiting: string) =>
+    reference ? `${reference.object_id} · v${reference.version} · ${approved(reference) ? "已批准" : "待批准"}` : waiting;
   const progress = view.projection.progress;
   const blocked = view.projection.sets.blocked.length > 0;
   const active =
@@ -699,26 +716,20 @@ export function deriveStagesFromView(
     {
       key: "requirement",
       title: "需求确认",
-      description: approved.has("I001")
-        ? "REQ-I001 · 已批准"
-        : "等待需求确认",
-      status: approved.has("I001") ? "accepted" : "waiting",
+      description: approvalDescription(requirement, "需求引用不可用"),
+      status: approved(requirement) ? "accepted" : "waiting",
     },
     {
       key: "design",
       title: "设计规格",
-      description: approved.has("DS-I001")
-        ? "DS-I001 · 已批准"
-        : "等待 Athena",
-      status: approved.has("DS-I001") ? "accepted" : "waiting",
+      description: approvalDescription(design, "设计引用不可用"),
+      status: approved(design) ? "accepted" : "waiting",
     },
     {
       key: "plan",
       title: "计划确认",
-      description: view.trace
-        ? `${view.trace.plan_ref.object_id} · v${view.trace.plan_ref.version}`
-        : "等待计划确认",
-      status: approved.has("PLAN-I001") ? "accepted" : "waiting",
+      description: approvalDescription(plan, "计划引用不可用"),
+      status: approved(plan) ? "accepted" : "waiting",
     },
     {
       key: "execute",
