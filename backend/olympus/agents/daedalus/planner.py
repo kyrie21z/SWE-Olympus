@@ -54,6 +54,30 @@ _FLAGGED_CODES = (
     "INVALID_WRITE_SCOPE",
 )
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+_EXACT_OUTPUT_SCOPE_SOURCE = "DAEDALUS-EXACT-OUTPUT-SCOPE"
+
+
+def _restrict_root_scope(data):
+    """Narrow an explicit Python author's root claim; never invent or move files."""
+    if (data.get("write_scope") != ["."] or data.get("type") not in ("interface", "implement")
+            or data.get("executor") != "Hephaestus"):
+        return False
+    outputs, contracts = data.get("outputs"), data.get("api_contracts")
+    if (not isinstance(outputs, list) or not outputs or not all(isinstance(name, str) for name in outputs)
+            or len(outputs) != len(set(outputs)) or not isinstance(contracts, dict) or not contracts
+            or not all(isinstance(name, str) and name in outputs for name in contracts)):
+        return False
+    try:
+        for name in outputs:
+            if (any(ord(char) < 32 or char in '<>"|?*' for char in name)
+                    or any(part != part.strip() or part.endswith(".") for part in name.split("/"))):
+                return False
+            # The existing contract guard checks canonical, bounded .py paths.
+            validate_task_api_contracts({name: {}}, [name])
+    except (TypeError, ValueError):
+        return False
+    data["write_scope"] = list(outputs)
+    return True
 
 
 def _proposal_schema_hints(error: ValidationError, prefix: str) -> list[str]:
@@ -70,7 +94,8 @@ def _proposal_schema_hints(error: ValidationError, prefix: str) -> list[str]:
         "api_contracts paths must be canonical bounded relative .py files":
             "键必须是规范的有界相对 .py 文件路径，不含绝对路径、反斜线、隐藏目录或遍历",
         "api_contracts file must be inside this task's bounded write_scope":
-            "每个文件必须位于本任务的有界 write_scope 内",
+            "每个文件必须位于本任务的有界 write_scope 内；路径与 outputs 同为工作区相对路径，不能省略目录前缀。"
+            "根目录文件可用精确文件 write_scope，不能用 '.'；仅引用前驱 API 时使用 inputs/depends_on，勿在本任务重复声明或扩大写权限",
         "api_contracts classes and methods must be public Python identifiers; do not list __init__":
             "类名及方法名必须是公开 Python 标识符，不以下划线开头，不使用关键字或列出 __init__",
         "api_contracts method names must be unique": "同一类的方法名不能重复",
@@ -137,6 +162,11 @@ class DaedalusPlanner:
     @staticmethod
     def draft_schema() -> dict[str, JsonValue]:
         task = TaskProposal.model_json_schema()
+        task["properties"]["api_contracts"]["description"] = (
+            "APIs authored by this task only. Keys are exact workspace-relative .py paths, "
+            "in the same coordinates as outputs and inside this task's bounded write_scope. "
+            "Keep directory prefixes. Ancestor APIs are supplied via inputs/depends_on, not redeclared here."
+        )
         for key in ("version", "content_hash", "schema_version"):
             task["properties"].pop(key, None)
         task["required"] = [key for key in task["required"] if key not in ("version", "content_hash")]
@@ -158,6 +188,11 @@ class DaedalusPlanner:
                 "sources 只引用任务实际实现或验证的需求和设计，不得通过给无关任务补来源 ID 来凑覆盖。",
                 "checks 写清需求指定的成功、失败、边界、状态转换、幂等和并发条件；保留数值范围、校验顺序及返回结构，不得缩减既有条件。",
                 "Python 类接口任务应声明 api_contracts：{精确相对.py路径:{公开类名:[承诺的公开方法名]}}。异常类用空数组；构造通过类调用，不列 __init__。名称为正式接口契约，下游不得猜测别名。仅声明本任务 write_scope 内的文件。",
+                "api_contracts 仅声明本任务实际编写的 API；前驱 API 通过 inputs/depends_on 获得，不在只读测试或其他消费者任务中重复声明。",
+                "api_contracts 的键、outputs、write_scope 都以工作区根为同一坐标，不能把 API 键当作 write_scope 目录内的短文件名。"
+                "例如 outputs=['modules/Store.py']、write_scope=['modules/Store.py']，API 键须为 'modules/Store.py'，不能为 'Store.py'。"
+                "根目录 interfaces.py 可直接用 write_scope=['interfaces.py']；不要使用 '.' 或扩大写范围。"
+                "若确需移动文件，同步 API 键、outputs 和全部下游 inputs；优先保留既有路径并使用精确文件范围。",
                 "仅输出 JSON：tasks 数组，任务字段遵循 output_schema，不输出状态或确认。",
                 "版本、指纹、输入绑定由程序生成；不要推算哈希。write_scope 仅为后续任务范围建议。",
                 f"当前需求 {req.object_id} v{req.version}；当前设计 {ds.object_id} v{ds.version}。",
@@ -278,7 +313,7 @@ class DaedalusPlanner:
                     if supplied != expected:
                         raise OutputSchemaError("plan output has a stale input reference",
                                                 hint=f"{key}: 必须绑定当前提供的版本和指纹，不得自行修改输入引用。")
-            tasks, problems = [], []
+            tasks, problems, restricted_root = [], [], False
             for index, raw in enumerate(raw_tasks):
                 if not isinstance(raw, dict):
                     problems.append(f"tasks[{index}]: 必须是任务对象(object)")
@@ -289,6 +324,7 @@ class DaedalusPlanner:
                     for key, value in raw.items()
                     if key not in {"schema_version", "version", "content_hash"}
                 }
+                restricted_root = _restrict_root_scope(data) or restricted_root
                 try:
                     data = TaskProposal.model_validate(data).model_dump(mode="json", exclude={"schema_version"})
                     if data.get("api_contracts") is None:
@@ -318,7 +354,10 @@ class DaedalusPlanner:
                         source_id=DAEDALUS,
                         locator="Versioned task proposal; input refs and fingerprints bound by program",
                     )
-                ],
+                ] + ([Provenance(
+                    kind="material", source_id=_EXACT_OUTPUT_SCOPE_SOURCE,
+                    locator="Program restriction: root write_scope narrowed to exact declared Python outputs before hashing; other task fields retained.",
+                )] if restricted_root else []),
             )
         except OutputSchemaError:
             raise
