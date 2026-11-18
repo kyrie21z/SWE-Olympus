@@ -87,7 +87,7 @@ def build_source_metadata(files: Mapping[str, str]) -> dict[str, dict]:
             raise ValueError("source metadata file type is outside the local execution profile")
         entry = {"sha256": hashlib.sha256(data).hexdigest()}
         if suffix == ".py":
-            entry.update(kind="python", **_python_facts(source))
+            entry.update(kind="python", text=source, **_python_facts(source))
         elif suffix in {".md", ".txt"}:
             entry.update(kind="text", text=source)
         elif suffix == ".json":

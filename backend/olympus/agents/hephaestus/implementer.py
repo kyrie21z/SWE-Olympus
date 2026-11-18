@@ -93,7 +93,8 @@ class HephaestusImplementer:
                 "Hephaestus: return JSON {changes:[{path:relative_path,content:UTF8_source}]}. "
                 "Declare only the public class/functions and exact method signatures required by task.goal/checks, "
                 "with required docstrings and built-in type annotations. Use pass or ellipsis bodies. "
-                "Label each method docstring as an Interface contract when describing its return schema. "
+                "Give every interface class AND every declared method its own docstring containing the exact "
+                "marker Interface contract. Include the required return schema in each method docstring. "
                 "Do not implement runtime behavior, constructors, storage/state, locks, validation helpers, "
                 "or extra public methods; later implement tasks own these. "
                 + imports +
