@@ -57,10 +57,13 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   const actions: WorkflowAction[] = [];
   let created = false;
   let designRequests = 0;
+  let planRequests = 0;
   let revisionComplete = false;
   const findings = ["检查重复预占", "检查库存守恒", "执行五轮并发验收", "检查库存快照隔离"];
   const advice = {finding_id:"ADVICE",message:"建议补充库存快照示例",severity:"important",status:"open"};
   const blockers = findings.map((message, index) => ({finding_id:`B-${index}`,message,severity:"blocker",status:"open"}));
+  const planBlocker = {finding_id:"PLAN-B1",message:"任务缺少可验证产物",severity:"blocker",status:"open"};
+  const planAdvice = {finding_id:"PLAN-A1",message:"建议统一任务命名",severity:"important",status:"open"};
   let snapshot: WorkflowSnapshot = {
     workflow_id:"WF-browser-contract",run_id:"RUN-browser-contract",stage:"requirement_pending",error:null,
     requirement:example,design:null,design_review:null,plan:null,plan_review:null,acceptance:{},executions:[],
@@ -76,7 +79,14 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
         snapshot = {...snapshot,stage:"design_pending_approval",design:{...bundle.design,version:3},
           design_review:{review:{verdict:"passed"},submission:{findings:[advice]}}};
       }
-      if (snapshot.stage === "plan_generating") snapshot = {...snapshot,stage:"plan_pending_approval",plan:bundle.plan,plan_review:{verdict:"passed",findings:[]},acceptance:{T01:{checks:{"check:T01":"assert 2 + 2 == 4"},fixtures:{},content_hash:"frozen-check-hash",author:"Momus"}}};
+      if (snapshot.stage === "plan_generating" && planRequests === 1) {
+        snapshot = {...snapshot,stage:"plan_review_blocked",plan:bundle.plan,
+          plan_review_record:{review:{verdict:"blocked"},submission:{findings:[planBlocker,planAdvice]}}};
+      } else if (snapshot.stage === "plan_generating") {
+        snapshot = {...snapshot,stage:"plan_pending_approval",plan:bundle.plan,plan_review:{verdict:"passed",findings:[]},
+          plan_review_record:{review:{verdict:"passed"},submission:{findings:[{...planBlocker,status:"closed"},planAdvice]}},
+          acceptance:{T01:{checks:{"check:T01":"assert 2 + 2 == 4"},fixtures:{},content_hash:"frozen-check-hash",author:"Momus"}}};
+      }
       return route.fulfill({json:view()});
     }
     const body = request.postDataJSON();
@@ -93,6 +103,7 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
     if (body.action === "generate_design" && ++designRequests === 2) {
       snapshot.design_revision = {round:2,limit:3,started_at:new Date().toISOString(),finding_count:2};
     }
+    if (body.action === "generate_plan") planRequests++;
     if (body.action === "execute") snapshot.executions = [{task_id:"T01",runtime:{state:"accepted"},execution:{checks_passed:["check:T01"],tool_mode:"real_tool",review:{verdict:"passed"}}}];
     return route.fulfill({json:view()});
   });
@@ -123,7 +134,11 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准设计");
   await page.getByRole("button", {name:"批准当前设计"}).click();
   await page.getByRole("button", {name:"生成任务计划"}).click();
+  await expect(page.getByText("还有 1 条计划阻断项待修复")).toBeVisible();
+  await expect(page.getByRole("button", {name:"批准计划与验收检查",exact:true})).toHaveCount(0);
+  await page.getByRole("button", {name:"修复计划阻断项"}).click();
   await expect(page.getByTestId("workflow-stage")).toHaveText("等待批准计划与验收检查");
+  await expect(page.getByText("计划审查通过，保留 1 条建议")).toBeVisible();
   await expect(page.getByRole("button", {name:"批准计划与验收检查",exact:true})).toBeDisabled();
   await page.getByText("T01 · 1 项检查", {exact:true}).click();
   await expect(page.getByText("assert 2 + 2 == 4", {exact:true})).toBeVisible();
@@ -135,7 +150,7 @@ test("workflow requires explicit human gates, shows frozen checks, and resumes a
   expect(actions).not.toContain("accept_run");
   await page.getByRole("button", {name:"确认最终验收"}).click();
   await expect(page.getByText("当前运行已完成人工最终验收", {exact:true})).toBeVisible();
-  expect(actions).toEqual(["approve_requirement","generate_design","generate_design","approve_design","generate_plan","approve_plan","execute","accept_run"]);
+  expect(actions).toEqual(["approve_requirement","generate_design","generate_design","approve_design","generate_plan","generate_plan","approve_plan","execute","accept_run"]);
 });
 
 test("the console handles missing and unapproved runs as empty states", async ({page}) => {

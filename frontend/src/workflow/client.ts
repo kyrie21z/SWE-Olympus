@@ -43,6 +43,7 @@ export interface WorkflowSnapshot {
   design_review_history?: unknown[];
   plan: Plan | null;
   plan_review: unknown;
+  plan_review_record?: unknown;
   acceptance?: Record<string, unknown>;
   executions: unknown[] | Record<string, unknown>;
   retry_action?: WorkflowAction | null;
