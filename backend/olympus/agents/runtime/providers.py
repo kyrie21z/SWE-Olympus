@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from copy import deepcopy
 from http.client import HTTPException
 import urllib.error
 import urllib.request
@@ -115,6 +116,24 @@ def _strict_schema_compatible(schema: dict) -> bool:
         return True
 
     return visit(schema, set())
+
+
+def _wire_output_schema(request):
+    """Make only Momus acceptance setup required on the remote wire copy."""
+    schema = request.output_schema
+    if request.role_id != "Momus" or request.task_kind != "acceptance_definition":
+        return schema
+    try:
+        row = schema["properties"]["tasks"]["items"]
+        properties, required = row["properties"], row["required"]
+    except (KeyError, TypeError):
+        return schema
+    if (not isinstance(properties, dict) or properties.get("setup") != {"type": "string"}
+            or not isinstance(required, list) or "setup" in required):
+        return schema
+    wire = deepcopy(schema)
+    wire["properties"]["tasks"]["items"]["required"] = [*required, "setup"]
+    return wire
 
 
 class _StreamError(Exception):
@@ -461,7 +480,7 @@ class RealProvider:
         if fast_options:
             payload.update(fast_options)
             payload["messages"][0]["content"] += " Return a JSON object without Markdown or surrounding prose."
-            schema = request.output_schema
+            schema = _wire_output_schema(request)
             if _strict_schema_compatible(schema):
                 payload["response_format"] = {"type": "json_schema", "json_schema": {
                     "name": "olympus_output", "strict": True, "schema": schema,
