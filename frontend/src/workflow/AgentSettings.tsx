@@ -48,7 +48,7 @@ function AgentCard({setting, onSaved}: {setting: AgentSetting; onSaved: (setting
   }
   async function test() {
     setBusy("test"); setError(""); setTestResult(null); setDidSave(false);
-    try { setTestResult(await workflowClient.testAgent(setting.role_id)); }
+    try { setTestResult(await workflowClient.testAgent(setting.role_id, setting.timeout_seconds)); }
     catch (error) { setError(describeApiError(error)); }
     finally { setBusy(null); }
   }
@@ -64,7 +64,7 @@ function AgentCard({setting, onSaved}: {setting: AgentSetting; onSaved: (setting
       <label htmlFor={`${setting.role_id}-key`}>API Key</label>
       <Input.Password id={`${setting.role_id}-key`} value={key} disabled={Boolean(busy)} onChange={event => {setKey(event.target.value); setModels([]); if (event.target.value) setClearKey(false);}} placeholder={setting.has_api_key ? "已保存密钥；留空保留" : "输入此角色使用的密钥"} autoComplete="new-password" />
       <small>{setting.has_api_key ? "后端已保存密钥，页面隐藏其内容。测试连接使用这把已保存的密钥。" : "当前没有已保存的密钥。填写并保存后可测试连接。"}</small>
-      <div className="agent-api-options"><label htmlFor={`${setting.role_id}-timeout`}>超时秒数</label><InputNumber id={`${setting.role_id}-timeout`} min={1} max={300} precision={0} value={timeout} onChange={value => setTimeout(value ?? 120)} /></div>
+      <div className="agent-api-options"><label htmlFor={`${setting.role_id}-timeout`}>请求时限（秒）</label><InputNumber id={`${setting.role_id}-timeout`} min={1} max={900} precision={0} value={timeout} onChange={value => setTimeout(value ?? (setting.role_id === "Momus" ? 300 : 120))} /></div>
       <Checkbox checked={clearKey} disabled={Boolean(busy) || Boolean(key) || !setting.has_api_key} onChange={event => {setClearKey(event.target.checked); setModels([]);}}>清除已保存密钥</Checkbox>
       {error && <Alert type="error" showIcon title={error} />}
       {didSave && !dirty && <Alert type="success" showIcon title="配置已保存到本机后端。" />}
@@ -75,7 +75,7 @@ function AgentCard({setting, onSaved}: {setting: AgentSetting; onSaved: (setting
         <Button type="primary" htmlType="submit" loading={busy === "save"} disabled={Boolean(busy)} icon={<Save size={15} />}>保存配置</Button>
         <Button onClick={() => void test()} loading={busy === "test"} disabled={Boolean(busy) || !setting.configured || dirty} icon={<PlugZap size={15} />}>测试连接</Button>
       </Space>
-      <small>填写地址和密钥后可获取模型列表。选好模型后保存并测试连接，测试会发送一次最小模型请求。</small>
+      <small>请求时限支持 1–900 秒；Momus 的计划审查和检查生成可能需要较长时间。填写地址和密钥后可获取模型列表。选好模型后保存并测试连接，测试会发送一次最小模型请求。</small>
     </form>
   </Card>;
 }
@@ -88,7 +88,7 @@ export function AgentSettings() {
     setLoading(true); setError("");
     try {
       const result = await workflowClient.getAgents(signal);
-      if (!signal?.aborted) setSettings(AGENT_ROLES.map(role => result.agents.find(item => item.role_id === role) ?? {role_id: role, base_url: "", model: "", timeout_seconds: 120, configured: false, has_api_key: false}));
+      if (!signal?.aborted) setSettings(AGENT_ROLES.map(role => result.agents.find(item => item.role_id === role) ?? {role_id: role, base_url: "", model: "", timeout_seconds: role === "Momus" ? 300 : 120, configured: false, has_api_key: false}));
     } catch (error) { if (!signal?.aborted) setError(describeApiError(error)); }
     finally { if (!signal?.aborted) setLoading(false); }
   }
@@ -102,3 +102,4 @@ export function AgentSettings() {
     <div className="agent-settings-grid">{settings?.map(setting => <AgentCard key={setting.role_id} setting={setting} onSaved={updated => setSettings(previous => previous?.map(item => item.role_id === updated.role_id ? updated : item) ?? [updated])} />)}</div>
   </section>;
 }
+

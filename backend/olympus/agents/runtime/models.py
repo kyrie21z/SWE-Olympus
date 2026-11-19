@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+import re
 
 from pydantic import Field, JsonValue
 
@@ -39,8 +40,27 @@ class ProviderNotConfiguredError(RuntimeError):
     """Real provider credentials/config are incomplete."""
 
 
+class ProviderRequestError(RuntimeError):
+    """A provider definitively failed; contains safe identifiers, never its response body."""
+
+    def __init__(self, error_code=None, *, role_id=None, task_kind=None, request_id=None, error_details=None):
+        known = {"provider_output_incomplete", "invalid_provider_response", "provider_request_failed"}
+        self.error_code = (error_code if isinstance(error_code, str) and (
+            error_code in known or re.fullmatch(r"http_[45][0-9]{2}", error_code)) else "provider_request_failed")
+        super().__init__(f"provider request failed: {self.error_code}")
+        self.role_id, self.task_kind, self.request_id = role_id, task_kind, request_id
+        self.error_details = error_details or {}
+
+
 class UnknownOutcomeError(RuntimeError):
     """Provider accepted a request but its outcome cannot be established."""
+
+    def __init__(self, message, *, role_id=None, task_kind=None, error_code=None, request_id=None):
+        super().__init__(message)
+        self.role_id = role_id
+        self.task_kind = task_kind
+        self.error_code = error_code
+        self.request_id = request_id
 
 
 class RolePermissions(Contract):

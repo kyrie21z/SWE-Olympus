@@ -1453,6 +1453,37 @@
           "default": true,
           "title": "Required",
           "type": "boolean"
+        },
+        "api_contracts": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "additionalProperties": {
+                  "items": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "propertyNames": {
+                  "maxLength": 160,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              "propertyNames": {
+                "maxLength": 160,
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Contracts"
         }
       },
       "required": [

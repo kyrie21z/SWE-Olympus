@@ -117,7 +117,7 @@ def test_settings_persist_without_exposing_keys_and_blank_edits_preserve_them(tm
     {"base_url": "https://example.org:wrong/v1"},
     {"base_url": "https://exa mple.org/v1"},
     {"timeout_seconds": 0},
-    {"timeout_seconds": 301},
+    {"timeout_seconds": 901},
     {"timeout_seconds": True},
     {"timeout_seconds": 1.5},
 ])
@@ -214,6 +214,10 @@ def test_saved_connection_test_calls_http_and_sanitizes_upstream_errors(tmp_path
 @pytest.mark.parametrize(("root", "model", "fast"), [
     ("https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.8-max", True),
     ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.8-flash", True),
+    ("https://maas.qianwenaiapi.com/compatible-mode/v1", "qwen4-max", True),
+    ("https://maas.qianwenaiapi.com/compatible-mode/v1", "qwen3.8-flash", True),
+    ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen4-max", True),
+    ("https://example.net/v1", "qwen4-max", False),
     ("https://example.net/v1", "qwen3.8-max", False),
     ("https://dashscope.aliyuncs.com/compatible-mode/v1", "another-model", False),
 ])
@@ -238,6 +242,18 @@ def test_model_studio_json_requests_skip_extra_thinking_only_for_supported_model
         assert not {"enable_thinking", "enable_search", "response_format"} & payload.keys()
     assert result.status == "outcome_unknown"
     assert result.error_code == "provider_timeout"
+
+
+def test_long_review_timeout_is_configurable_and_saved_values_are_preserved(tmp_path):
+    client = client_for(tmp_path / "state.sqlite3")
+    agents = {row["role_id"]: row for row in client.get("/api/settings/agents").json()["agents"]}
+    assert agents["Momus"]["timeout_seconds"] == 300
+    assert agents["Athena"]["timeout_seconds"] == 120
+    saved = client.put("/api/settings/agents/Momus", json={"timeout_seconds": 900})
+    assert saved.status_code == 200
+    assert saved.json()["timeout_seconds"] == 900
+    changed = client.put("/api/settings/agents/Momus", json={"model": "updated-model"})
+    assert changed.json()["timeout_seconds"] == 900
 
 
 def test_settings_repr_hides_secret_and_provider_never_falls_back_to_environment(tmp_path, monkeypatch):

@@ -44,6 +44,7 @@ export function P6Dag({
     <div className="p6-dag-scroll">
       <svg
         className="p6-dag"
+        style={{ minWidth: Math.min(Math.round(layout.width * 0.72), 930) }}
         viewBox={`0 0 ${layout.width} ${layout.height}`}
         role="img"
         aria-label="只读业务任务依赖图"

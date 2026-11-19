@@ -28,6 +28,26 @@ ROOT = Path(__file__).resolve().parents[2]
 BUSY_STAGES = {"design_generating", "plan_generating", "executing"}
 
 
+@pytest.mark.parametrize(("http_status", "error_code", "label"), [
+    (401, "MODEL_AUTHENTICATION_FAILED", "鉴权失败"),
+    (403, "MODEL_ACCESS_DENIED", "模型访问范围"),
+])
+def test_model_permission_failure_is_explicit_and_can_retry_after_settings_change(
+    tmp_path, bundle, http_status, error_code, label,
+):
+    with workflow_model_server(bundle, failure_status=http_status) as (url, calls):
+        with TestClient(create_app(store=Store(tmp_path / "state.sqlite3"))) as client:
+            configure_roles(client, url, "Athena", "Momus")
+            workflow_id = create(client, bundle.requirement)["workflow_id"]
+            action(client, workflow_id, "approve_requirement", "requirement_approved")
+            failed = action(client, workflow_id, "generate_design", "error")
+            assert failed["error"]["code"] == error_code
+            assert label in failed["error"]["message"]
+            assert failed["retry_safe"] is True
+            assert failed["allowed_actions"] == ["generate_design"]
+            assert len(calls) == 1
+
+
 def execution_materials():
     campus = (ROOT / "fixtures/execution/campus_service.py").read_text(encoding="utf-8")
     campus_checks = (ROOT / "fixtures/execution/check_campus.py").read_text(encoding="utf-8")
@@ -191,10 +211,9 @@ def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(t
         if role == "Athena" and not manifest.get("format_correction"):
             return {"design": {**output["design"], "concurrency": ["expected a string"]}}
         if role == "Momus" and "blockers" in manifest:
-            finding, = manifest["blockers"]
             return {"decisions": [{"finding_id": finding["finding_id"], "decision": "resolved", "citations": [
                 {"task_id": "T01", "field": "goal", "quote": revised_goal},
-            ]}]}
+            ]} for finding in manifest["blockers"]]}
         if role == "Momus" and "plan" in manifest:
             version = manifest["plan"]["version"]
             return {"verdict": "blocked", "findings": [{
@@ -204,7 +223,7 @@ def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(t
                 "code": "FORMAT_SUGGESTION", "severity": "important", "task_id": "T01", "message": "List examples.",
             }]}
         if role == "Daedalus" and manifest.get("previous_tasks"):
-            assert len(manifest["review_findings"]) == 1
+            assert len(manifest["review_findings"]) == 2
             tasks = output["tasks"]
             return {"tasks": [{**tasks[0], "goal": revised_goal}, *tasks[1:]]}
         if role == "Momus" and "tasks" in output and not manifest.get("format_correction"):
@@ -233,7 +252,7 @@ def test_all_eight_tasks_use_real_model_http_and_tools_and_survive_app_restart(t
             assert planned["plan"]["version"] == 2
             assert planned["plan"]["tasks"][0]["version"] == 2
             assert planned["plan_review_record"]["blocking_finding_ids"] == []
-            assert [f["status"] for f in planned["plan_review_record"]["submission"]["findings"]] == ["closed", "open"]
+            assert [f["status"] for f in planned["plan_review_record"]["submission"]["findings"]] == ["closed", "closed"]
             assert sum("plan" in call["manifest"] and "blockers" not in call["manifest"] for call in calls) == 1
             assert "concurrency" in [call for call in calls if call["role"] == "Athena"][1]["manifest"]["format_correction"]
             assert [call for call in calls if call["role"] == "Daedalus"][1]["manifest"]["review_findings"]
@@ -507,6 +526,7 @@ def test_inventory_design_repairs_validation_order_and_keeps_advice_nonblocking(
 def test_plan_checklist_survives_restart_and_rejects_missing_evidence(tmp_path, bundle):
     revised_goal = "登记报名状态和可见返回值"
     blocked_message = "T01 must record the visible return value."
+    valid_evidence = False
 
     def respond(role, manifest, output):
         if role == "Daedalus" and manifest.get("previous_tasks"):
@@ -515,7 +535,7 @@ def test_plan_checklist_survives_restart_and_rejects_missing_evidence(tmp_path, 
             return {"tasks": [{**tasks[0], "goal": revised_goal}, *tasks[1:]]}
         if role == "Momus" and "blockers" in manifest:
             finding, = manifest["blockers"]
-            quote = revised_goal if manifest["plan"]["version"] == 3 else "This text is absent from the task."
+            quote = revised_goal if valid_evidence else "This text is absent from the task."
             return {"decisions": [{"finding_id": finding["finding_id"], "decision": "resolved", "citations": [
                 {"task_id": "T01", "field": "goal", "quote": quote},
             ]}]}
@@ -533,13 +553,18 @@ def test_plan_checklist_survives_restart_and_rejects_missing_evidence(tmp_path, 
             action(client, workflow_id, "approve_requirement", "requirement_approved")
             action(client, workflow_id, "generate_design", "design_pending_approval")
             action(client, workflow_id, "approve_design", "design_approved")
-            blocked = action(client, workflow_id, "generate_plan", "plan_review_blocked")
-            assert blocked["plan"]["version"] == 2
+            blocked = action(client, workflow_id, "generate_plan", "error")
+            assert blocked["error"]["code"] == "OUTPUT_SCHEMA_ERROR"
+            assert blocked["retry_safe"] is True
+            assert blocked["plan"]["version"] == 1
             assert not blocked["acceptance"]
             finding_id, = blocked["plan_review_record"]["blocking_finding_ids"]
+            assert any("format_correction" in call["manifest"] for call in calls
+                       if "blockers" in call["manifest"])
+        valid_evidence = True
         with TestClient(create_app(store=Store(database))) as client:
             result = action(client, workflow_id, "generate_plan", "plan_pending_approval", operation_id="plan-repair")
-            assert result["plan"]["version"] == 3
+            assert result["plan"]["version"] == 2
             finding, = result["plan_review_record"]["submission"]["findings"]
             assert finding["finding_id"] == finding_id and finding["status"] == "closed"
             assert revised_goal in finding["closure_reason"]

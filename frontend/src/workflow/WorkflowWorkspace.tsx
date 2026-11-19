@@ -20,6 +20,18 @@ function rememberWorkflow(importId: string, id: string) {
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
+function failedExecution(value: unknown) {
+  const row = jsonObject(value);
+  const receipt = jsonObject(row.execution ?? row.receipt ?? value);
+  const runtime = jsonObject(row.runtime);
+  const check = (Array.isArray(receipt.check_outputs) ? receipt.check_outputs.map(jsonObject) : [])
+    .find(item => typeof item.exit_code === "number" && item.exit_code !== 0);
+  if (!check && receipt.state !== "failed" && runtime.state !== "failed") return null;
+  return {
+    taskId: String(row.task_id ?? receipt.task_id ?? "未提供"),
+    checkId: typeof check?.check_id === "string" ? check.check_id : null,
+  };
+}
 function Pending({title, description}: {title: string; description: string}) {
   return <div className="workflow-pending"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={false} /><h3>{title}</h3><p>{description}</p></div>;
 }
@@ -51,15 +63,21 @@ function Review({value}: {value: unknown}) {
   const review = jsonObject(outer.review ?? value);
   const verdict = typeof review.verdict === "string" ? review.verdict : "已返回报告";
   const findings = reviewFindings(value);
+  const active = findings.filter(finding => !finding.closed);
+  const resolved = findings.filter(finding => finding.closed);
   const label = {passed: "通过", blocked: "有阻断项", needs_revision: "待修订"}[verdict as "passed" | "blocked" | "needs_revision"] ?? verdict;
+  const findingItem = (finding: (typeof findings)[number], i: number) => <li key={finding.id ?? i}>
+    {finding.closed ? <Tag color="success">已修复</Tag> : finding.severity === "blocker" ? <Tag color="error">阻断</Tag>
+      : finding.severity === "important" || finding.severity === "nit" ? <Tag>建议</Tag> : null}
+    {finding.message}
+    {finding.closure && <p>{finding.closure}</p>}
+  </li>;
   return <div className="workflow-review"><Space wrap><strong>独立审查</strong><Tag color={verdict === "passed" ? "success" : "warning"}>{label}</Tag></Space>
-    {findings.length > 0 && <ul>{findings.map((finding, i) => <li key={finding.id ?? i}>
-      {finding.closed ? <Tag color="success">已核对</Tag> : finding.severity === "blocker" ? <Tag color="error">阻断</Tag>
-        : finding.severity === "important" || finding.severity === "nit" ? <Tag>建议</Tag> : null}
-      {finding.message}
-      {finding.closure && <p>{finding.closure}</p>}
-    </li>)}</ul>}
-    <Collapse items={[{key: "review", label: "查看完整独立审查报告", children: <pre className="workflow-json">{readableJson(value)}</pre>}]} />
+    {active.length > 0 && <ul aria-label="未关闭的审查意见">{active.map(findingItem)}</ul>}
+    <Collapse items={[
+      ...(resolved.length ? [{key: "resolved", label: `已修复 ${resolved.length} 项`, children: <ul aria-label="已修复的审查意见">{resolved.map(findingItem)}</ul>}] : []),
+      {key: "review", label: "查看完整独立审查报告", children: <pre className="workflow-json">{readableJson(value)}</pre>},
+    ]} />
   </div>;
 }
 function ExecutionEvidence({value}: {value: unknown}) {
@@ -115,28 +133,34 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
   const [storageError, setStorageError] = useState("");
   const mounted = useRef(true);
   const epoch = useRef(0);
-  const pendingOperation = useRef<{action: WorkflowAction; id: string} | null>(null);
+  const pendingOperation = useRef<{action: WorkflowAction; id: string; stage: WorkflowSnapshot["stage"]} | null>(null);
   useEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
   useEffect(() => {setPlanRead(false);}, [snapshot?.plan?.content_hash]);
   useEffect(() => {
     if (!workflowId) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    let failures = 0;
     async function poll() {
       const started = epoch.current;
       try {
         const next = await workflowClient.get(workflowId, controller.signal);
         if (!controller.signal.aborted && started === epoch.current) {
           setSnapshot(next); setLoadError(""); setMissingWorkflow(false);
-          if (next.retry_safe) pendingOperation.current = null;
+          failures = 0;
+          const pending = pendingOperation.current;
+          if (next.retry_safe || (pending && (next.pending_action === pending.action || next.stage !== pending.stage))) {
+            pendingOperation.current = null; setActionError("");
+          }
         }
       } catch (error) {
         if (!controller.signal.aborted && started === epoch.current) {
+          failures++;
           setLoadError(describeApiError(error));
           setMissingWorkflow(error instanceof WorkflowApiError && error.code === "WORKFLOW_NOT_FOUND");
         }
       }
-      if (!controller.signal.aborted) timer = setTimeout(() => void poll(), 2000);
+      if (!controller.signal.aborted) timer = setTimeout(() => void poll(), Math.min(10_000, 2000 * 2 ** Math.min(failures, 3)));
     }
     void poll();
     return () => {controller.abort(); clearTimeout(timer);};
@@ -174,16 +198,30 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
     finally {if (mounted.current) setBusy(false);}
   }
   async function dispatch(action: WorkflowAction, nextTab?: string) {
-    if (!snapshot || busy) return;
+    if (!snapshot || busy || (snapshot.successor_workflow_id && action === "execute")) return;
     setBusy(true); setActionError(""); epoch.current++;
     if (nextTab) setTab(nextTab);
-    const operation = pendingOperation.current?.action === action ? pendingOperation.current : {action, id: crypto.randomUUID()};
+    const operation = pendingOperation.current?.action === action ? pendingOperation.current : {action, id: crypto.randomUUID(), stage: snapshot.stage};
     pendingOperation.current = operation;
     try {
       const next = await workflowClient.action(snapshot.workflow_id, action, operation.id);
       if (!mounted.current) return;
       epoch.current++;
       setSnapshot(next); pendingOperation.current = null;
+    } catch (error) {if (mounted.current && pendingOperation.current === operation) setActionError(describeApiError(error));}
+    finally {if (mounted.current) setBusy(false);}
+  }
+  async function openLinkedWorkflow(id: string) {
+    if (!id || id === workflowId || busy) return;
+    setBusy(true); setActionError(""); epoch.current++;
+    try {
+      const next = await workflowClient.get(id);
+      if (!mounted.current) return;
+      epoch.current++;
+      pendingOperation.current = null;
+      setSnapshot(next); setWorkflowId(next.workflow_id); setPlanRead(false); setTab("plan");
+      setLoadError(""); setMissingWorkflow(false); setStorageError("");
+      try {rememberWorkflow(file.id, next.workflow_id);} catch {setStorageError("已切换运行，但浏览器未能保存关联。请保留当前运行编号。");}
     } catch (error) {if (mounted.current) setActionError(describeApiError(error));}
     finally {if (mounted.current) setBusy(false);}
   }
@@ -196,6 +234,7 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
   const permitted = !snapshot?.allowed_actions || (next && snapshot.allowed_actions.includes(next.action));
   const retry = snapshot?.retry_safe && snapshot.retry_action && snapshot.allowed_actions?.includes(snapshot.retry_action) ? snapshot.retry_action : null;
   const executionRows = snapshot ? Array.isArray(snapshot.executions) ? snapshot.executions : Object.values(snapshot.executions ?? {}) : [];
+  const failure = executionRows.map(failedExecution).find(value => value !== null);
   const planBound = snapshot?.plan_bound ?? Boolean(snapshot?.plan && ["plan_approved", "executing", "execution_blocked", "awaiting_acceptance", "completed"].includes(snapshot.stage));
   const consoleUrl = snapshot && planBound ? `?run=${encodeURIComponent(snapshot.run_id)}#console` : null;
   const canCreate = !workflowId || missingWorkflow;
@@ -241,14 +280,18 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
   return <section className="workflow-workspace" data-testid="workflow-workspace">
     <Card title={<Space><Workflow size={18} />需求到执行</Space>} extra={<Button icon={<Settings2 size={15} />} onClick={onSettings}>Agent API 设置</Button>}>
       <div className="workflow-status-heading"><div><h3 data-testid="workflow-stage">{snapshot ? STAGES[snapshot.stage] ?? snapshot.stage : workflowId ? "正在恢复运行" : "建立当前需求的运行"}</h3><p>{snapshot ? <><span className="workflow-key">{snapshot.workflow_id}</span> · {snapshot.run_id}</> : "需求、设计、计划和最终验收均由你明确确认。"}</p></div>{generating && <Spin size="small" />}</div>
+      {snapshot?.source_workflow_id && <p className="workflow-intro">此运行修订自 <span className="workflow-key">{snapshot.source_workflow_id}</span><Button type="link" disabled={busy} onClick={() => void openLinkedWorkflow(snapshot.source_workflow_id!)}>查看来源运行</Button></p>}
       <Steps className="workflow-steps" size="small" current={snapshot ? workflowStageIndex(snapshot) : 0} status={snapshot?.stage === "error" || snapshot?.stage.endsWith("_blocked") ? "error" : snapshot?.stage === "completed" ? "finish" : "process"} items={[{title:"需求接纳"},{title:"设计与审查"},{title:"计划与检查"},{title:"受控执行"},{title:"最终验收"}]} />
       {synthetic && <Alert type="info" showIcon title="构造测试需求" description="本次运行继续保留构造来源标识；测试确认不代表真实用户的生产授权。" />}
       {snapshot?.model_mode === "offline" && <Alert type="info" showIcon title="离线模式" description="使用与需求版本匹配的预置 Agent 响应。Python 检查在本机实际执行。" />}
       {actionError && <Alert type="error" showIcon title={actionError} />}
-      {loadError && <Alert type="warning" showIcon title={missingWorkflow ? "找不到先前的运行，可为此文件重新建立运行" : "运行数据可能过期"} description={missingWorkflow ? undefined : loadError} />}
+      {loadError && <Alert type="warning" showIcon title={missingWorkflow ? "找不到先前的运行，可为此文件重新建立运行" : "后端连接暂时中断，正在自动重连"} description={missingWorkflow ? undefined : `${loadError} 当前显示上次取得的状态；恢复连接后会自动补取进度。`} />}
       {storageError && <Alert type="warning" showIcon title={storageError} />}
       {snapshot?.error && <Alert type="error" showIcon title={snapshot.error.code === "OUTPUTSCHEMAERROR" ? "模型已返回，设计或任务规格未通过格式检查。请重试当前阶段。" : `${snapshot.error.code}：${snapshot.error.message}`}
+        description={failure ? <span data-testid="workflow-failure">失败任务：<span className="workflow-key">{failure.taskId}</span>{failure.checkId && <>；未通过检查：{failure.checkId}</>}</span> : undefined}
         action={["AGENT_NOT_CONFIGURED", "OUTCOME_UNKNOWN"].includes(snapshot.error.code) ? <Button onClick={onSettings}>检查 API 设置</Button> : undefined} />}
+      {snapshot?.error?.request_id && <p className="workflow-intro workflow-key">请求编号：{snapshot.error.request_id}{snapshot.error.role_id ? ` · ${snapshot.error.role_id}` : ""}{snapshot.error.task_id ? ` · ${snapshot.error.task_id}` : ""}</p>}
+      {generating && snapshot?.progress && <Alert type="info" showIcon data-testid="workflow-progress" title={snapshot.progress.message} description={<Space wrap><Tag>{snapshot.progress.role_id}</Tag>{snapshot.progress.task_id && <span>{snapshot.progress.task_id}</span>}{typeof snapshot.progress.total === "number" && snapshot.progress.total > 0 && <span>已完成 {snapshot.progress.completed ?? 0} / {snapshot.progress.total}</span>}</Space>} />}
       {reviewTab && <Alert type="warning" showIcon title={openFindings.length
         ? `还有 ${openFindings.length} 条${reviewTab === "design" ? "设计" : "计划"}阻断项待修复` : "请查看当前审查报告"}
         description={openFindings.length ? <>
@@ -264,22 +307,23 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
           <Radio value="offline">离线样例</Radio>
           <Radio value="online">在线 Agent</Radio>
         </Radio.Group>
-        <span className="workflow-intro">离线支持库存预占和团队文档原始样例。在线 Agent 使用已配置的模型 API。</span>
+        <span className="workflow-intro">离线支持内置库存预占和团队文档样例。在线 Agent 使用已配置的模型 API。</span>
       </div>}
       {canCreate && synthetic && <div className="workflow-actions"><Checkbox checked={allowSynthetic} onChange={event => setAllowSynthetic(event.target.checked)}>允许将这份构造样例用于测试运行</Checkbox></div>}
       {snapshot?.stage === "plan_pending_approval" && <div className="workflow-actions"><Checkbox checked={planRead} onChange={event => setPlanRead(event.target.checked)}>我已审阅当前计划及冻结的验收检查</Checkbox><Button type="link" onClick={() => setTab("plan")}>查看计划与检查脚本</Button></div>}
       <div className="workflow-actions">
         {canCreate && <Button type="primary" loading={busy} disabled={busy || !modelMode || !report?.requirement || !report.canSave || (synthetic && !allowSynthetic)} onClick={() => void create()}>{missingWorkflow ? "重新建立运行" : "建立运行并核验需求"}</Button>}
         {!report?.requirement && !workflowId && <span className="workflow-intro">生成设计规格需要有效的 REQ JSON；文本材料请先整理为结构化需求。</span>}
-        {next && <Button type="primary" aria-label={next.label} loading={busy} disabled={busy || generating || !permitted || planNeedsRead} onClick={() => void dispatch(next.action, next.tab)}>{next.label}</Button>}
-        {retry && <Button loading={busy} disabled={busy} onClick={() => void dispatch(retry)}>重试当前阶段</Button>}
+        {snapshot?.successor_workflow_id && <Button type="primary" loading={busy} disabled={busy} onClick={() => void openLinkedWorkflow(snapshot.successor_workflow_id!)}>打开修订后的运行</Button>}
+        {next && !(snapshot?.successor_workflow_id && next.action === "execute") && <Button type="primary" aria-label={next.label} loading={busy} disabled={busy || generating || !permitted || planNeedsRead} onClick={() => void dispatch(next.action, next.tab)}>{next.label}</Button>}
+        {retry && !(snapshot?.successor_workflow_id && retry === "execute") && <Button loading={busy} disabled={busy} onClick={() => void dispatch(retry)}>重试当前阶段</Button>}
         {workflowId && <Button loading={busy && !next} disabled={busy} icon={<RefreshCw size={15} />} onClick={() => void refresh()}>刷新状态</Button>}
         {consoleUrl && <Button href={consoleUrl}>查看此运行控制台</Button>}
         {canStartOffline && <Button disabled={busy || !report?.canSave} onClick={() => void create("offline")}>用离线样例新建运行</Button>}
         {failedOnline && !retry && <Button disabled={busy || !report?.canSave} onClick={() => void create("online")}>新建在线运行</Button>}
       </div>
-      {snapshot?.stage === "execution_blocked" && <p className="workflow-intro">请先在此运行控制台中处理失败任务或恢复暂停，再继续执行；结果未知的请求需要先核对。</p>}
-      {generating && <p className="workflow-intro" role="status">
+      {snapshot?.stage === "execution_blocked" && <p className="workflow-intro">{snapshot.successor_workflow_id ? "请在修订后的运行中查看进度并完成后续批准。" : "请先在此运行控制台中处理失败任务或恢复暂停，再继续执行；结果未知的请求需要先核对。"}</p>}
+      {generating && !loadError && <p className="workflow-intro" role="status">
         {designRevision && `自动修订第 ${designRevision.round} 轮（最多 ${designRevision.limit} 轮），本轮处理 ${designRevision.finding_count} 条阻断项。`}
         {snapshot?.pending_model_role ? `正在等待 ${snapshot.pending_model_role} 返回。` : "正在后台处理。"}
         {elapsed > 0 ? `本阶段已用 ${elapsed} 秒。` : ""}页面会自动更新，也可以手动刷新状态。
@@ -288,3 +332,4 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
     <Card className="workspace-body"><Tabs activeKey={tab} onChange={setTab} items={[{key:"requirement",label:"导入规格",children:requirementContent},{key:"design",label:"设计规格",children:designContent},{key:"plan",label:"任务分解",children:planContent},{key:"execution",label:"编排执行",children:executionContent},{key:"acceptance",label:"验收",children:acceptanceContent}]} /></Card>
   </section>;
 }
+

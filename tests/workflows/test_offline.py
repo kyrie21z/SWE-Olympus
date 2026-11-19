@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(("fixture", "task_count"), [
     ("fixtures/requirements/inventory-reservation/requirement.json", 4),
     ("frontend/public/examples/requirement.json", 2),
+    ("frontend/public/examples/team-documents-demo.json", 5),
 ])
 def test_default_offline_runs_builtin_requirement_to_acceptance(tmp_path, fixture, task_count):
     req = Requirement.model_validate_json((ROOT / fixture).read_text(encoding="utf-8"))
@@ -44,12 +45,20 @@ def test_default_offline_runs_builtin_requirement_to_acceptance(tmp_path, fixtur
         assert len(final["executions"]) == task_count
         assert all(item["runtime"]["state"] == "accepted" for item in final["executions"])
         assert all(item["execution"]["tool_invocations"] > 0 for item in final["executions"])
-        if task_count == 4:
+        if req.object_id == "REQ-INVENTORY-RESERVATION":
             outputs = final["executions"][-1]["execution"]["check_outputs"]
             assert "Ran 9 tests" in outputs[0]["output"]
         view = client.get(f"/api/runs/{initial['run_id']}/view").json()
         assert view["projection"]["progress"]["accepted"] == task_count
         assert all(row["accepted"] for row in view["trace"]["rows"])
+        if req.object_id == "REQ-TEAM-DOCS-DEMO":
+            assert view["projection"]["manifest"]["layers"] == [["T01"], ["T02", "T03"], ["T04"], ["T05"]]
+            assert [task["depends_on"] for task in final["plan"]["tasks"]] == [
+                [], ["T01"], ["T01"], ["T02", "T03"], ["T04"],
+            ]
+            checks = {item["task_id"]: item["execution"]["check_outputs"] for item in final["executions"]}
+            assert "Title search and both document versions passed." in checks["T04"][0]["output"]
+            assert "Delivery evidence verified against the acceptance report." in checks["T05"][0]["output"]
 
 
 def test_preexisting_missing_configuration_error_can_retry_offline(tmp_path):

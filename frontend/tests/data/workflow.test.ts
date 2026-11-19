@@ -4,7 +4,7 @@ import { agentUpdate, NEXT_ACTION } from "../../src/workflow/model";
 import requirement from "../../public/examples/requirement.json";
 import type { Requirement } from "../../src/contracts/generated";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {vi.unstubAllGlobals(); vi.useRealTimers();});
 
 describe("per-agent API configuration", () => {
   it("preserves a saved key when left empty and clears only with an explicit flag", () => {
@@ -28,6 +28,51 @@ describe("per-agent API configuration", () => {
 });
 
 describe("workflow HTTP lifecycle", () => {
+  it("aborts a stalled status request so polling can reconnect", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn().mockImplementation((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), {once: true});
+    }));
+    vi.stubGlobal("fetch", fetcher);
+    const request = new WorkflowClient("", 1000).get("WF-1");
+    const assertion = expect(request).rejects.toMatchObject({code:"BACKEND_REQUEST_TIMEOUT",status:0});
+    await vi.advanceTimersByTimeAsync(1000);
+    await assertion;
+    expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("preserves caller cancellation and releases the request deadline", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), {once: true});
+    })));
+    const controller = new AbortController();
+    const request = new WorkflowClient().get("WF-1", controller.signal);
+    const assertion = expect(request).rejects.toMatchObject({name:"AbortError"});
+    controller.abort();
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("does not automatically repeat a mutation after a lost response", async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({stage:"plan_generating"})));
+    vi.stubGlobal("fetch", fetcher);
+    const client = new WorkflowClient();
+    await expect(client.action("WF-1", "generate_plan", "same-operation")).rejects.toMatchObject({code:"BACKEND_CONNECTION_LOST"});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await client.action("WF-1", "generate_plan", "same-operation");
+    expect(fetcher.mock.calls.map(([, init]) => JSON.parse(init.body).operation_id)).toEqual(["same-operation", "same-operation"]);
+  });
+  it("lets an agent connection test use the saved model request budget", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise(resolve => {
+      setTimeout(() => resolve(new Response(JSON.stringify({ok:true,message:"connected"}))), 20_000);
+    })));
+    const request = new WorkflowClient().testAgent("Momus", 300);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(request).resolves.toMatchObject({ok:true});
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("creates a run without sending any implicit approval", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({workflow_id:"WF-1",stage:"requirement_pending"})));
     vi.stubGlobal("fetch", fetcher);

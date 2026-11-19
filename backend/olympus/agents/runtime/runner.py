@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
+import json
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -11,6 +13,7 @@ from pydantic import JsonValue, ValidationError
 from olympus.agents.runtime.models import (
     InputWhitelistError,
     OutputSchemaError,
+    ProviderRequestError,
     RolePermissions,
     RoleResult,
     RoleRunInput,
@@ -18,7 +21,7 @@ from olympus.agents.runtime.models import (
     RunnerPermissionError,
     UnknownOutcomeError,
 )
-from olympus.agents.runtime.providers import MockProvider, RealProvider
+from olympus.agents.runtime.providers import MockProvider, RealProvider, safe_provider_error_details
 from olympus.agents.runtime.records import (
     ExecutionRecordService,
     strip_internal_reasoning,
@@ -107,6 +110,12 @@ class AgentRunner:
             call_count += 1
             if result.provider_request_id is not None:
                 entry = self.ledger.mark_sent(entry.request_id, result.provider_request_id)
+            details = safe_provider_error_details(getattr(result, "error_details", None))
+            failure = ProviderRequestError(result.error_code, role_id=request.role_id, task_kind=request.task_kind,
+                                           request_id=entry.request_id, error_details=details) if result.status == "failed" else None
+            summary = {"output_keys": sorted(result.output)} if result.output is not None else None
+            if failure and details:
+                summary = {**(summary or {}), "provider_error_details": details}
             if result.late_generation is not None:
                 entry = self.ledger.record_outcome(
                     entry.request_id, "succeeded", current_generation=result.late_generation
@@ -115,10 +124,8 @@ class AgentRunner:
                 entry = self.ledger.record_outcome(
                     entry.request_id,
                     result.status,
-                    response_summary=(
-                        {"output_keys": sorted(result.output)} if result.output is not None else None
-                    ),
-                    error_code=result.error_code,
+                    response_summary=summary,
+                    error_code=failure.error_code if failure else result.error_code,
                 )
             last_entry = entry
             if result.usage:
@@ -149,9 +156,13 @@ class AgentRunner:
                     tool_payloads,
                     call_count,
                     elapsed_ms,
-                    "OUTCOME_UNKNOWN",
+                    f"OUTCOME_UNKNOWN:{result.error_code or 'unknown'}",
                 )
-                raise UnknownOutcomeError(f"outcome unknown for request {entry.request_id}")
+                raise UnknownOutcomeError(
+                    f"outcome unknown for request {entry.request_id}",
+                    role_id=request.role_id, task_kind=request.task_kind,
+                    error_code=result.error_code, request_id=entry.request_id,
+                )
             if result.status == "failed":
                 self._record_failure(
                     request,
@@ -159,9 +170,9 @@ class AgentRunner:
                     tool_payloads,
                     call_count,
                     elapsed_ms,
-                    f"PROVIDER_FAILED:{result.error_code or 'unknown'}",
+                    f"PROVIDER_FAILED:{failure.error_code}",
                 )
-                raise RuntimeError(f"provider request failed: {result.error_code or 'unknown'}")
+                raise failure
 
         if last_entry is None:
             raise ValueError("provider produced no steps")
@@ -175,7 +186,11 @@ class AgentRunner:
             if output_validator is not None:
                 try:
                     verdict = output_validator(output)
-                except OutputSchemaError:
+                except OutputSchemaError as exc:
+                    # Only the audited, reasoning-stripped output of this call
+                    # may be used for a targeted correction. Never attach inputs.
+                    exc.rejected_output = deepcopy(output)
+                    self._save_rejected_acceptance(request, output, last_entry.request_id)
                     raise
                 except Exception as exc:
                     raise OutputSchemaError(f"output validator failed: {exc}") from exc
@@ -230,6 +245,31 @@ class AgentRunner:
             execution_record_id=saved.record_id,
             mode=self.provider.mode,
         )
+
+    def _save_rejected_acceptance(self, request, output, request_id):
+        if (request.role_id != "Momus" or request.task_kind != "acceptance_definition" or
+                self.ledger.path is None):
+            return
+        rows = output.get("tasks")
+        if not isinstance(rows, list):
+            return
+        candidate = {"tasks": [
+            {key: deepcopy(row[key]) for key in ("task_id", "setup", "checks") if key in row}
+            for row in rows if isinstance(row, dict) and row.get("task_id") == request.task_id
+        ]}
+        if not candidate["tasks"]:
+            return
+        directory = self.ledger.path.parent / "acceptance-candidates"
+        try:
+            name = fingerprint({"request_id": request_id, "candidate": candidate})
+            directory.mkdir(parents=True, exist_ok=True)
+            target = directory / f"{name}.json"
+            temporary = directory / f"{name}.tmp"
+            temporary.write_text(json.dumps(candidate, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(target)
+        except (OSError, TypeError, ValueError):
+            # Diagnostic storage must not change validation or retry semantics.
+            pass
 
     # ------------------------------------------------------------------ validation
     @staticmethod
@@ -332,12 +372,13 @@ class AgentRunner:
             return
         expected_type = schema.get("type")
         if expected_type == "object" and not isinstance(output, dict):
-            raise OutputSchemaError("output must be an object")
+            raise OutputSchemaError("output must be an object", hint="请返回符合 output_schema 的 JSON 对象，不能返回列表或纯文本。")
         required = schema.get("required")
         if isinstance(required, list):
             for key in required:
                 if key not in output:
-                    raise OutputSchemaError(f"output missing required field: {key}")
+                    raise OutputSchemaError(f"output missing required field: {key}",
+                                            hint=f"JSON 顶层缺少必填字段 {key}；请按 output_schema 补全并返回完整对象。")
         properties = schema.get("properties")
         if isinstance(properties, dict):
             for key, spec in properties.items():
@@ -349,7 +390,8 @@ class AgentRunner:
                     and declared in _TYPE_CHECKS
                     and not _TYPE_CHECKS[declared](output[key])
                 ):
-                    raise OutputSchemaError(f"output field {key} must be of type {declared}")
+                    raise OutputSchemaError(f"output field {key} must be of type {declared}",
+                                            hint=f"JSON 字段 {key} 必须是 {declared} 类型；请按 output_schema 修正后返回完整对象。")
 
     @staticmethod
     def _parse_artifacts(output: dict[str, JsonValue]) -> list[Artifact]:

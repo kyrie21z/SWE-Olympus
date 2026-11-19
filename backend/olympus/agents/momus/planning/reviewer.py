@@ -25,6 +25,7 @@ from olympus.contracts.models import (
     Ref,
     Requirement,
     Review,
+    fingerprint,
 )
 from olympus.planning.validator import (
     PlanValidationReport,
@@ -101,12 +102,17 @@ class MomusPlanReviewer:
         mode: Mode = "mock",
         common_reviewer: CommonReviewer | None = None,
         runner: AgentRunner | None = None,
+        program_checks: Callable[[Plan, Requirement, Design], Iterable[SemanticFinding]] | None = None,
+        program_check_id: Id = "program:additional-plan-checks",
+        review_context: dict | None = None,
     ):
         # Daedalus can never be an authorized closer of its own review blockers.
         self.authorized_closers = frozenset(authorized_closers) - {DAEDALUS}
         self.mode = mode
         self.common_reviewer = common_reviewer if common_reviewer is not None else CommonReviewer()
         self.runner = runner
+        self.program_checks, self.program_check_id = program_checks, program_check_id
+        self.review_context = review_context
 
     def _granularity_findings(self, plan: Plan) -> list[SemanticFinding]:
         implementation = [task for task in plan.tasks if task.type == "implement"]
@@ -211,6 +217,31 @@ class MomusPlanReviewer:
             "tasks": [task.model_dump(mode="json") for task in plan.tasks],
             "output_schema": schema,
         }
+        if self.review_context is not None:
+            manifest["execution_context"] = self.review_context
+            manifest["prompt"] += (
+                " Evaluate deliverables against execution_context. Momus independently authors frozen "
+                "executable checks stored by the harness; read-only tasks run those checks and emit real reports. "
+                "Do not demand imaginary model-authored test modules from read-only tasks. Require a reachable "
+                "author for documentation files, and real ancestor report inputs for report aggregation. "
+                "The approved requirement and design define scope: do not add standalone files, extra artifacts "
+                "or stricter delivery formats merely by preference. A complete README.md authored by a reachable "
+                "Hephaestus implementation task and verified by a Hermes documentation task can satisfy approved "
+                "Chinese run-instruction obligations; an additional standalone guide is required only if the "
+                "approved inputs explicitly demand it. Verify that the README content covers the actual obligations. "
+                "At execution time source_metadata[report_path]['data']['checks'][i]['output'] and exit_code "
+                "come from real harness-executed checks. They are dynamic execution evidence, not interface "
+                "declarations or invented future results. A plan that parses actual observed counts from these "
+                "reports and compares them with requirement-backed expected values describes valid verification; "
+                "still report fabricated counts, incompatible parsing or absent evidence when those defects genuinely occur. "
+                "Before raising a missing-input finding, inspect the ENTIRE current task.inputs list and its "
+                "reachable ancestor providers. Name the exact missing artifact and explain why existing listed "
+                "inputs do not supply it; do not claim a source file is absent when it is explicitly listed and supplied. "
+                "Interface contracts prove source/schema/signature facts; real business behavior belongs to "
+                "the implementation and tests with executable inputs. Retain independent full review and report "
+                "genuine approved-obligation blockers; these execution facts do not require a passed verdict. "
+                "Return only concise actionable findings."
+            )
         result = self.runner.run(
             RoleRunInput(
                 role_id=MOMUS,
@@ -236,7 +267,7 @@ class MomusPlanReviewer:
         schema = PlanFindingChecks.model_json_schema()
         manifest = {
             "prompt": (
-                "Momus: verify only the listed blockers against the revised tasks and approved inputs. "
+                "Momus: verify only the listed findings against the revised tasks and approved inputs. "
                 "Return one decision per finding_id. Use resolved only when the required outcome is covered, with "
                 "verbatim evidence from current tasks. Cite the entire scalar field or one exact list entry. Coverage may move "
                 "to a different task. Use keep for partially addressed or unverifiable findings, with citations []. "
@@ -247,10 +278,12 @@ class MomusPlanReviewer:
             "requirement_content": req.content,
             "design_content": ds.content,
             "tasks": [task.model_dump(mode="json") for task in plan.tasks],
-            "blockers": [{"finding_id": item.finding_id, "message": item.message} for item in blockers],
+            "blockers": [{"finding_id": item.finding_id, "severity": item.severity,
+                          "message": item.message} for item in blockers],
             "output_schema": schema,
         }
         expected = {item.finding_id for item in blockers}
+        tasks = {task.task_id: task for task in plan.tasks}
 
         def validate(output):
             try:
@@ -258,9 +291,25 @@ class MomusPlanReviewer:
                 ids = [row.finding_id for row in result.decisions]
                 if len(ids) != len(expected) or set(ids) != expected:
                     raise ValueError("one decision is required for every supplied blocker")
+                for row in result.decisions:
+                    if row.decision != "resolved":
+                        continue
+                    if not row.citations:
+                        raise OutputSchemaError("resolved finding requires task evidence",
+                                                hint="resolved 判断须引用当前任务中的完整字段或一个完整列表条目。")
+                    for citation in row.citations:
+                        task = tasks.get(citation.task_id)
+                        field_value = getattr(task, citation.field, ())
+                        matches = (citation.quote == field_value if isinstance(field_value, str)
+                                   else citation.quote in field_value)
+                        if task is None or not citation.quote.strip() or not matches:
+                            raise OutputSchemaError("plan finding citation does not match current tasks",
+                                                    hint="引用须使用当前任务的 task_id，并原样复制整个字段或一个完整列表条目；请勿截取或改写。")
+            except OutputSchemaError:
+                raise
             except ValueError as exc:
                 raise OutputSchemaError("invalid plan finding verification",
-                                        hint="请为首审清单中的每条阻断返回一条复核判断，并保留 finding_id。") from exc
+                                        hint="请为首审清单中的每条意见返回一条复核判断，并保留 finding_id。") from exc
             return result
 
         result = self.runner.run(
@@ -273,7 +322,6 @@ class MomusPlanReviewer:
                 permissions=RolePermissions(role_id=MOMUS, allowed_task_kinds=[RECHECK_TASK_KIND],
                                             allowed_input_keys=list(manifest)),
             ), output_validator=validate)
-        tasks = {task.task_id: task for task in plan.tasks}
         by_id = {finding.finding_id: finding for finding in blockers}
         for row in validate(result.structured_output).decisions:
             if row.decision != "resolved" or not row.citations:
@@ -292,8 +340,7 @@ class MomusPlanReviewer:
                 finding.closure_reason = "\n".join(citations)
         return result.execution_record_id
 
-    def review(self, plan: Plan, req: Requirement, ds: Design, *,
-               previous_review: ReviewRecord | None = None) -> PlanReview:
+    def _program_findings(self, plan: Plan, req: Requirement, ds: Design):
         report = validate_plan_semantics(plan, req, ds)
         findings = [
             SemanticFinding(
@@ -319,6 +366,89 @@ class MomusPlanReviewer:
                 )
             )
 
+        if self.program_checks is not None:
+            findings.extend(self.program_checks(plan, req, ds))
+        return report, findings
+
+    def _required_checks(self, checks):
+        return list(dict.fromkeys([*checks, *([self.program_check_id] if self.program_checks else [])]))
+
+    @staticmethod
+    def _passed_checks(common_findings, checks):
+        program_blocked = any(f.raised_by == "program" and f.severity == "blocker" and f.status == "open"
+                              for f in common_findings)
+        semantic_blocked = any(f.raised_by == MOMUS and f.severity == "blocker" and f.status == "open"
+                               for f in common_findings)
+        return [check for check in checks
+                if (check.startswith("program:") and not program_blocked)
+                or (check.startswith("momus:") and not semantic_blocked)]
+
+    def revalidate_program_checks(self, plan: Plan, req: Requirement, ds: Design,
+                                  previous_review: ReviewRecord) -> PlanReview:
+        """Refresh deterministic checks for identical content, retaining independent review evidence."""
+        previous = previous_review.submission
+        if (previous.target != plan.ref() or previous.target_kind != "PLAN" or previous.author != DAEDALUS
+                or previous.reviewer != MOMUS or previous.reviewer_role != MOMUS
+                or previous.input_refs != [req.ref(), ds.ref()]
+                or any(f.target != plan.ref() for f in previous.findings)):
+            raise ValueError("program revalidation requires the exact independently reviewed baseline")
+        recorded = CommonReviewer().validate_and_record(previous, current_target=plan.ref(),
+                                                         expected_author=DAEDALUS,
+                                                         current_inputs=[req.ref(), ds.ref()])
+        if recorded.review != previous_review.review or recorded.blocking_finding_ids != previous_review.blocking_finding_ids:
+            raise ValueError("program revalidation requires a consistent review record")
+        if (not set(PLAN_REVIEW_CHECKS) <= set(previous.required_checks)
+                or "momus:semantic-review" not in previous.evidence
+                or not any(item.startswith("ER-") for item in previous.evidence)):
+            raise ValueError("program revalidation requires recorded independent semantic review evidence")
+        semantic = [f.model_copy(deep=True) for f in previous.findings if f.raised_by == MOMUS]
+        citation_fields = ("goal", "type", "sources", "inputs", "outputs", "depends_on", "checks",
+                           "write_scope", "executor", "reviewer", "resources")
+        valid_citations = set()
+        for task in plan.tasks:
+            for field in citation_fields:
+                value = getattr(task, field)
+                for quote in [value] if isinstance(value, str) else value:
+                    valid_citations.add(f"{task.task_id} · {field}：{quote}")
+        if any(f.status == "closed" and (f.closed_by != MOMUS or not f.closure_reason
+                                         or not set(f.closure_reason.splitlines()) <= valid_citations)
+               for f in semantic):
+            raise ValueError("closed semantic findings require independent closure evidence")
+        report, findings = self._program_findings(plan, req, ds)
+        common_findings = []
+        for index, finding in enumerate(findings):
+            current = self._record_finding(plan, finding, index, "program")
+            # New rules can add findings on the same version; use a separate
+            # namespace so their IDs cannot collide with the retained semantic list.
+            current.finding_id = f"F-P-{plan.object_id[:105]}-V{plan.version}-{index}"
+            common_findings.append(current)
+        common_findings.extend(semantic)
+        findings.extend(SemanticFinding(code=f.category, severity=f.severity, message=f.message)
+                        for f in semantic if f.status == "open")
+        blocked = any(f.severity == "blocker" and f.status == "open" for f in common_findings)
+        suffix = "-REVALIDATED-" + fingerprint({
+            "previous": previous.review_id,
+            "program": report.model_dump(mode="json"),
+            "program_findings": [f.model_dump(mode="json") for f in common_findings if f.raised_by == "program"],
+        })[:8]
+        submission = previous.model_copy(update={
+            "review_id": previous.review_id[:160 - len(suffix)] + suffix,
+            "verdict": "blocked" if blocked else "passed", "findings": common_findings,
+            "required_checks": self._required_checks(previous.required_checks),
+            "passed_checks": self._passed_checks(common_findings, self._required_checks(previous.required_checks)),
+            "evidence": list(dict.fromkeys([*previous.evidence, previous.review_id,
+                                            "program:revalidated-identical-plan", *self._required_checks([])])),
+        }, deep=True)
+        record = self.common_reviewer.validate_and_record(submission, current_target=plan.ref(),
+                                                           expected_author=DAEDALUS,
+                                                           current_inputs=[req.ref(), ds.ref()])
+        return PlanReview(review=record.review, validation=report, findings=findings,
+                          revision_recommended=blocked, record=record)
+
+    def review(self, plan: Plan, req: Requirement, ds: Design, *,
+               previous_review: ReviewRecord | None = None) -> PlanReview:
+        report, findings = self._program_findings(plan, req, ds)
+
         common_findings = [
             self._record_finding(plan, finding, index, "program")
             for index, finding in enumerate(findings)
@@ -341,7 +471,7 @@ class MomusPlanReviewer:
                     update.update(status="open", closed_by=None, closure_reason=None)
                 carried.append(finding.model_copy(update=update))
             common_findings.extend(carried)
-            blockers = [finding for finding in carried if finding.severity == "blocker"]
+            blockers = [finding for finding in carried if finding.status == "open"]
             execution_evidence.append(previous.review_id)
             if blockers and self.runner is not None and self.runner.provider.mode == "real_model":
                 execution_evidence.append(self._recheck_agent(plan, req, ds, previous_review, blockers))
@@ -357,6 +487,7 @@ class MomusPlanReviewer:
             mode = role_result.mode
             checks = list(PLAN_REVIEW_CHECKS)
 
+        checks = self._required_checks(checks)
         blocked = any(item.severity == "blocker" and item.status == "open" for item in common_findings)
         verdict = "blocked" if blocked else "passed"
         submission = ReviewSubmission(
@@ -375,7 +506,7 @@ class MomusPlanReviewer:
             ],
             input_refs=[req.ref(), ds.ref()],
             required_checks=checks,
-            passed_checks=(checks if verdict == "passed" else ["program:validate_plan_semantics"]),
+            passed_checks=self._passed_checks(common_findings, checks),
             mode=mode,
         )
         record = self.common_reviewer.validate_and_record(
@@ -502,7 +633,9 @@ class PlanningWorkflow:
                     halted_reason="REVISION_LIMIT_REACHED",
                     findings=blockers,
                 )
-            revised = self.planner.revise_plan(plan, blockers, req, ds)
+            active_findings = [item.message for item in result.record.submission.findings
+                               if item.status == "open" and item.severity in {"blocker", "important"}]
+            revised = self.planner.revise_plan(plan, active_findings, req, ds)
             if revised.version != plan.version + 1 or revised.ref() == plan.ref():
                 raise ValueError("revision must bump the plan version and its content hash")
             plan = revised
