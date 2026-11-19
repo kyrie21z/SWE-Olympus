@@ -34,7 +34,7 @@ LOCAL_EXECUTION_CAPABILITIES = {
         "behavior_checks": "Call available public executable interfaces for actual behavior. A static interface contract cannot prove behavior only implemented by later tasks.",
     },
     "source_metadata": {
-        "python": ["sha256", "kind", "import_roots", "public_symbols", "signatures", "annotations", "docstrings"],
+        "python": ["sha256", "kind", "import_roots", "public_symbols", "signatures", "initializers", "annotations", "docstrings"],
         "text": "For .md/.txt files, inspect trusted text metadata; do not open files.",
         "json": "For .json files, inspect trusted parsed data metadata; reports contain task, executor, checks and inputs.",
         "reports": "Read-only task reports are real JSON files at <report-directory>/check-report.json; use trusted report metadata rather than imaginary authored test modules.",

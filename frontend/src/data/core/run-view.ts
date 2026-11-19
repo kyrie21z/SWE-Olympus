@@ -52,7 +52,7 @@ export interface RuntimeProjection {
     eligible: string[];
     ready: string[];
     dispatchable: string[];
-    blocked: Array<{ task_id: string; why: string }>;
+    blocked: Array<{ task_id: string; why: string | string[] }>;
   };
   progress: { accepted: number; required: number };
   pause_state: {

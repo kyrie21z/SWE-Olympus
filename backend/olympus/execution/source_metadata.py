@@ -46,7 +46,7 @@ def _python_facts(source: str) -> dict:
             imports.add("." * node.level + (node.module or "").split(".")[0])
     public_symbols = []
     docstrings = {"module": ast.get_docstring(tree) or ""}
-    signatures, annotations = {}, {}
+    signatures, annotations, initializers = {}, {}, {}
 
     def declarations(nodes, prefix=""):
         for node in nodes:
@@ -58,13 +58,18 @@ def _python_facts(source: str) -> dict:
             public_symbols.append(name)
             docstrings[name] = ast.get_docstring(node) or ""
             if isinstance(node, ast.ClassDef):
+                for member in node.body:
+                    if isinstance(member, ast.FunctionDef) and member.name == "__init__" and not member.decorator_list:
+                        parameters = _signature(member)["parameters"]
+                        if parameters and parameters[0]["kind"] in {"positional_only", "positional_or_keyword"}:
+                            initializers[name] = parameters[1:]
                 declarations(node.body, name + ".")
             else:
                 signatures[name] = _signature(node)
 
     declarations(tree.body)
     return {"import_roots": sorted(imports), "public_symbols": sorted(public_symbols), "docstrings": docstrings,
-            "signatures": signatures, "annotations": annotations}
+            "signatures": signatures, "annotations": annotations, "initializers": initializers}
 
 
 def build_source_metadata(files: Mapping[str, str]) -> dict[str, dict]:

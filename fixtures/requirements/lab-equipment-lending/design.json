@@ -1,0 +1,382 @@
+{
+  "modules": [
+    "equipment_catalog.py",
+    "loan_service.py",
+    "loan_report.py"
+  ],
+  "data": [
+    "EquipmentCatalog in-memory dict mapping equipment_id to status string",
+    "LoanService in-memory dict mapping loan_id to record with loan_id, equipment_id, status",
+    "History list of record snapshots returned by LoanService.history",
+    "Summary dict with total, reserved, checked_out, returned, cancelled integer fields"
+  ],
+  "interfaces": [
+    "EquipmentCatalog()",
+    "EquipmentCatalog.register(equipment_id)",
+    "EquipmentCatalog.get_equipment(equipment_id)",
+    "EquipmentCatalog.claim(equipment_id)",
+    "EquipmentCatalog.release(equipment_id)",
+    "LoanService(catalog)",
+    "LoanService.reserve(loan_id, equipment_id)",
+    "LoanService.checkout(loan_id)",
+    "LoanService.return_equipment(loan_id)",
+    "LoanService.cancel(loan_id)",
+    "LoanService.history(equipment_id)",
+    "LoanReport()",
+    "LoanReport.summarize(records)"
+  ],
+  "states": [
+    "AVAILABLE",
+    "UNAVAILABLE",
+    "RESERVED",
+    "CHECKED_OUT",
+    "RETURNED",
+    "CANCELLED"
+  ],
+  "concurrency": "Single-process in-memory only; no concurrent scheduling or cross-process state sharing per out_of_scope.",
+  "exceptions": [
+    "DUPLICATE",
+    "NOT_FOUND",
+    "UNAVAILABLE",
+    "INVALID_TRANSITION",
+    "CONFLICT",
+    "INVALID_ARGUMENT"
+  ],
+  "interaction": "LoanService calls injected EquipmentCatalog for claim and release; LoanReport consumes history list only.",
+  "decisions": [
+    "Pure Python single-process memory; no web, network services, DB, or disk persistence per out_of_scope",
+    "No login, real-name, billing, or expiry reminders per out_of_scope",
+    "Uniform dict return: {ok:true,data:value} on success, {ok:false,error:{code:code}} on failure",
+    "Case-sensitive equipment_id comparison",
+    "Seven delivery tasks: three implementation, three unit test, one integration acceptance"
+  ],
+  "elements": [
+    {
+      "id": "ELEM-CATALOG-REGISTER",
+      "sources": [
+        "FR-001",
+        "NFR-001"
+      ],
+      "description": "EquipmentCatalog.register adds equipment_id with AVAILABLE status",
+      "acceptance_method": "Assert register('CAM-1') returns {ok:true,data:{equipment_id:'CAM-1',status:'AVAILABLE'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-GET",
+      "sources": [
+        "FR-001",
+        "NFR-001"
+      ],
+      "description": "EquipmentCatalog.get_equipment returns current status snapshot",
+      "acceptance_method": "Assert get_equipment('CAM-1') returns {ok:true,data:{equipment_id:'CAM-1',status:'AVAILABLE'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-DUPLICATE",
+      "sources": [
+        "FR-001",
+        "NFR-001"
+      ],
+      "description": "Repeated register of same equipment_id reports DUPLICATE",
+      "acceptance_method": "Assert second register('CAM-1') returns {ok:false,error:{code:'DUPLICATE'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-NOT-FOUND",
+      "sources": [
+        "FR-001",
+        "FR-002",
+        "NFR-001"
+      ],
+      "description": "Operations on unknown equipment_id report NOT_FOUND",
+      "acceptance_method": "Assert get_equipment, claim, release on 'UNKNOWN' return {ok:false,error:{code:'NOT_FOUND'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-CASE-SENSITIVE",
+      "sources": [
+        "FR-001",
+        "NFR-001"
+      ],
+      "description": "Equipment IDs are case-sensitive",
+      "acceptance_method": "Assert register('cam-1') succeeds independently from 'CAM-1' without DUPLICATE"
+    },
+    {
+      "id": "ELEM-CATALOG-CLAIM",
+      "sources": [
+        "FR-002",
+        "NFR-001"
+      ],
+      "description": "EquipmentCatalog.claim transitions equipment to UNAVAILABLE",
+      "acceptance_method": "Assert claim('CAM-1') returns {ok:true,data:{equipment_id:'CAM-1',status:'UNAVAILABLE'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-RELEASE",
+      "sources": [
+        "FR-002",
+        "NFR-001"
+      ],
+      "description": "EquipmentCatalog.release transitions equipment to AVAILABLE",
+      "acceptance_method": "Assert release('CAM-1') returns {ok:true,data:{equipment_id:'CAM-1',status:'AVAILABLE'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-UNAVAILABLE",
+      "sources": [
+        "FR-002",
+        "NFR-001"
+      ],
+      "description": "Claiming already claimed equipment reports UNAVAILABLE",
+      "acceptance_method": "Assert claim on UNAVAILABLE equipment returns {ok:false,error:{code:'UNAVAILABLE'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-INVALID-TRANSITION",
+      "sources": [
+        "FR-002",
+        "NFR-001"
+      ],
+      "description": "Releasing unclaimed equipment reports INVALID_TRANSITION",
+      "acceptance_method": "Assert release on AVAILABLE equipment returns {ok:false,error:{code:'INVALID_TRANSITION'}}"
+    },
+    {
+      "id": "ELEM-CATALOG-STATE-CONSISTENCY",
+      "sources": [
+        "FR-002",
+        "NFR-001"
+      ],
+      "description": "Failed claim or release leaves state unchanged",
+      "acceptance_method": "Assert status before and after failed claim/release remains identical"
+    },
+    {
+      "id": "ELEM-LOAN-RESERVE",
+      "sources": [
+        "FR-003",
+        "NFR-001"
+      ],
+      "description": "LoanService.reserve claims via catalog and creates RESERVED record",
+      "acceptance_method": "Assert reserve('L1','CAM-1') returns {ok:true,data:{loan_id:'L1',equipment_id:'CAM-1',status:'RESERVED'}}"
+    },
+    {
+      "id": "ELEM-LOAN-RESERVE-RETRY",
+      "sources": [
+        "FR-003",
+        "NFR-001"
+      ],
+      "description": "Retrying reserve with same loan_id and equipment_id returns current status",
+      "acceptance_method": "Assert repeated reserve('L1','CAM-1') returns {ok:true,data:{loan_id:'L1',equipment_id:'CAM-1',status:'RESERVED'}}"
+    },
+    {
+      "id": "ELEM-LOAN-RESERVE-CONFLICT",
+      "sources": [
+        "FR-003",
+        "NFR-001"
+      ],
+      "description": "Reserving different equipment under existing loan_id reports CONFLICT",
+      "acceptance_method": "Assert reserve('L1','CAM-2') returns {ok:false,error:{code:'CONFLICT'}}"
+    },
+    {
+      "id": "ELEM-LOAN-RESERVE-NOT-FOUND",
+      "sources": [
+        "FR-003",
+        "NFR-001"
+      ],
+      "description": "Reserving unknown equipment reports NOT_FOUND",
+      "acceptance_method": "Assert reserve('L2','UNKNOWN') returns {ok:false,error:{code:'NOT_FOUND'}}"
+    },
+    {
+      "id": "ELEM-LOAN-RESERVE-UNAVAILABLE",
+      "sources": [
+        "FR-003",
+        "NFR-001"
+      ],
+      "description": "Reserving already claimed equipment reports UNAVAILABLE",
+      "acceptance_method": "Assert reserve on UNAVAILABLE equipment returns {ok:false,error:{code:'UNAVAILABLE'}}"
+    },
+    {
+      "id": "ELEM-LOAN-RESERVE-NO-RECORD",
+      "sources": [
+        "FR-003",
+        "NFR-001"
+      ],
+      "description": "Failed reserve does not add a loan record",
+      "acceptance_method": "Assert history after failed reserve contains no new records"
+    },
+    {
+      "id": "ELEM-LOAN-CHECKOUT",
+      "sources": [
+        "FR-004",
+        "NFR-001"
+      ],
+      "description": "LoanService.checkout transitions RESERVED to CHECKED_OUT",
+      "acceptance_method": "Assert checkout('L1') returns {ok:true,data:{loan_id:'L1',equipment_id:'CAM-1',status:'CHECKED_OUT'}}"
+    },
+    {
+      "id": "ELEM-LOAN-RETURN",
+      "sources": [
+        "FR-004",
+        "NFR-001"
+      ],
+      "description": "LoanService.return_equipment transitions CHECKED_OUT to RETURNED and releases catalog",
+      "acceptance_method": "Assert return_equipment('L1') returns {ok:true,data:{loan_id:'L1',equipment_id:'CAM-1',status:'RETURNED'}}"
+    },
+    {
+      "id": "ELEM-LOAN-CANCEL",
+      "sources": [
+        "FR-004",
+        "NFR-001"
+      ],
+      "description": "LoanService.cancel transitions RESERVED to CANCELLED and releases catalog",
+      "acceptance_method": "Assert cancel('L1') returns {ok:true,data:{loan_id:'L1',equipment_id:'CAM-1',status:'CANCELLED'}}"
+    },
+    {
+      "id": "ELEM-LOAN-CATALOG-AFTER-CHECKOUT",
+      "sources": [
+        "FR-004",
+        "NFR-001"
+      ],
+      "description": "Catalog remains UNAVAILABLE after checkout until return or cancel",
+      "acceptance_method": "Assert catalog.get_equipment shows UNAVAILABLE after checkout, AVAILABLE after return/cancel"
+    },
+    {
+      "id": "ELEM-LOAN-INVALID-TRANSITION",
+      "sources": [
+        "FR-004",
+        "NFR-001"
+      ],
+      "description": "Invalid state transitions report INVALID_TRANSITION",
+      "acceptance_method": "Assert checkout on RETURNED returns {ok:false,error:{code:'INVALID_TRANSITION'}}"
+    },
+    {
+      "id": "ELEM-LOAN-NOT-FOUND",
+      "sources": [
+        "FR-004",
+        "NFR-001"
+      ],
+      "description": "Operations on unknown loan_id report NOT_FOUND",
+      "acceptance_method": "Assert checkout/return/cancel on 'UNKNOWN' returns {ok:false,error:{code:'NOT_FOUND'}}"
+    },
+    {
+      "id": "ELEM-LOAN-HISTORY",
+      "sources": [
+        "FR-005",
+        "NFR-001"
+      ],
+      "description": "LoanService.history returns all records for equipment in reservation order",
+      "acceptance_method": "Assert history('CAM-1') returns list of dicts each with loan_id, equipment_id, status"
+    },
+    {
+      "id": "ELEM-LOAN-HISTORY-EMPTY",
+      "sources": [
+        "FR-005",
+        "NFR-001"
+      ],
+      "description": "History for registered equipment with no records returns empty list",
+      "acceptance_method": "Assert history('CAM-1') returns {ok:true,data:[]} when no loans exist"
+    },
+    {
+      "id": "ELEM-LOAN-HISTORY-NOT-FOUND",
+      "sources": [
+        "FR-005",
+        "NFR-001"
+      ],
+      "description": "History for unknown equipment reports NOT_FOUND",
+      "acceptance_method": "Assert history('UNKNOWN') returns {ok:false,error:{code:'NOT_FOUND'}}"
+    },
+    {
+      "id": "ELEM-LOAN-HISTORY-ISOLATION",
+      "sources": [
+        "FR-005",
+        "NFR-001"
+      ],
+      "description": "Modifying returned records does not affect subsequent queries; other equipment excluded",
+      "acceptance_method": "Assert mutating result list does not change next history call; CAM-2 records absent from CAM-1"
+    },
+    {
+      "id": "ELEM-REPORT-SUMMARIZE",
+      "sources": [
+        "FR-006",
+        "NFR-001"
+      ],
+      "description": "LoanReport.summarize counts statuses into total, reserved, checked_out, returned, cancelled",
+      "acceptance_method": "Assert summarize with one of each status returns data.total=4, reserved=1, checked_out=1, returned=1, cancelled=1"
+    },
+    {
+      "id": "ELEM-REPORT-SUMMARIZE-EMPTY",
+      "sources": [
+        "FR-006",
+        "NFR-001"
+      ],
+      "description": "Summarize with empty list returns all zero fields",
+      "acceptance_method": "Assert summarize([]) returns {ok:true,data:{total:0,reserved:0,checked_out:0,returned:0,cancelled:0}}"
+    },
+    {
+      "id": "ELEM-REPORT-IMMUTABLE",
+      "sources": [
+        "FR-006",
+        "NFR-001"
+      ],
+      "description": "Summarize does not modify input records list",
+      "acceptance_method": "Assert input list identity and contents unchanged after summarize call"
+    },
+    {
+      "id": "ELEM-REPORT-INDEPENDENT",
+      "sources": [
+        "FR-006",
+        "NFR-001"
+      ],
+      "description": "LoanReport can run independently with same-shape data",
+      "acceptance_method": "Assert summarize accepts plain list of dicts matching history shape without LoanService"
+    },
+    {
+      "id": "ELEM-NFR-INVALID-ARGUMENT",
+      "sources": [
+        "NFR-001"
+      ],
+      "description": "Empty or non-string equipment_id or loan_id reports INVALID_ARGUMENT",
+      "acceptance_method": "Assert methods with '' or 123 as ID return {ok:false,error:{code:'INVALID_ARGUMENT'}}"
+    },
+    {
+      "id": "ELEM-NFR-FAILURE-NO-STATE-CHANGE",
+      "sources": [
+        "NFR-001"
+      ],
+      "description": "Any failure does not change internal state",
+      "acceptance_method": "Assert state snapshots before and after any failing call remain equal"
+    },
+    {
+      "id": "ELEM-NFR-ISOLATION",
+      "sources": [
+        "NFR-001"
+      ],
+      "description": "Two independent catalog and loan instances do not share data",
+      "acceptance_method": "Assert operations on instance A do not affect instance B state or history"
+    },
+    {
+      "id": "ELEM-TEST-CATALOG",
+      "sources": [
+        "NFR-002"
+      ],
+      "description": "Automated test for equipment_catalog module producing pass report",
+      "acceptance_method": "Run unit tests covering FR-001, FR-002, NFR-001; assert all pass and report generated"
+    },
+    {
+      "id": "ELEM-TEST-LOAN",
+      "sources": [
+        "NFR-002"
+      ],
+      "description": "Automated test for loan_service module producing pass report",
+      "acceptance_method": "Run unit tests covering FR-003, FR-004, FR-005, NFR-001; assert all pass and report generated"
+    },
+    {
+      "id": "ELEM-TEST-REPORT",
+      "sources": [
+        "NFR-002"
+      ],
+      "description": "Automated test for loan_report module producing pass report",
+      "acceptance_method": "Run unit tests covering FR-006, NFR-001; assert all pass and report generated"
+    },
+    {
+      "id": "ELEM-INTEGRATION-ACCEPTANCE",
+      "sources": [
+        "NFR-002"
+      ],
+      "description": "Integration test reading three reports, registering two devices, full lifecycle on first",
+      "acceptance_method": "Assert total=2, returned=1, cancelled=1 for first device; all zeros for second device"
+    }
+  ]
+}

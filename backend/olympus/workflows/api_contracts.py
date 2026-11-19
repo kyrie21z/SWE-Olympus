@@ -112,6 +112,22 @@ class _Analyzer:
             return None
         if isinstance(node, (ast.Tuple, ast.List)):
             return tuple(self.expression(item, env) for item in node.elts)
+        if isinstance(node, ast.Compare):
+            operands = [node.left, *node.comparators]
+            symbols = [self.expression(operand, env) for operand in operands]
+            for index, operation in enumerate(node.ops):
+                if not isinstance(operation, (ast.Is, ast.IsNot)):
+                    continue
+                for position, other in ((index, index + 1), (index + 1, index)):
+                    operand = operands[position]
+                    method = symbols[position]
+                    if (isinstance(operand, ast.Attribute) and isinstance(method, _Method)
+                            and method.name in self.modules[method.cls.module][method.cls.name]
+                            and isinstance(self.expression(operand.value, env), _Instance)
+                            and not isinstance(operands[other], ast.Constant)):
+                        self.problems.append(f"第 {node.lineno} 行：不要通过 is/is not 比较实例的绑定方法 {method.name}；"
+                                             "每次取方法属性可能产生新的对象。分别按签名直接调用公开方法。")
+            return None
         for child in ast.iter_child_nodes(node):
             self.expression(child, env)
         return None
@@ -274,4 +290,18 @@ def validate_implementation_contracts(source: str, path: str, contracts: dict) -
         for method in required:
             if method not in methods(name):
                 problems.append(f"{normalized} 缺少正式方法 {name}.{method}；请按接口契约声明该方法，不要新增替代别名。")
+        for member in classes[name].body:
+            if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            positional = [*member.args.posonlyargs, *member.args.args]
+            if not positional or any(isinstance(item, ast.Name) and item.id == "staticmethod"
+                                     for item in member.decorator_list):
+                continue
+            receiver = positional[0].arg
+            for target in ast.walk(member):
+                if (isinstance(target, ast.Attribute) and isinstance(target.ctx, ast.Store)
+                        and isinstance(target.value, ast.Name) and target.value.id == receiver
+                        and target.attr in required):
+                    problems.append(f"{normalized} 第 {target.lineno} 行：{receiver}.{target.attr} 的赋值遮蔽了"
+                                    f"公开方法 {name}.{target.attr}；请为存储字段另取名称，保留公开方法可调用。")
     _raise(problems)

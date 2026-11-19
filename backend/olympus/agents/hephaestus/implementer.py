@@ -42,8 +42,9 @@ def _python_policy_hint(error: SyntaxError | ValueError) -> str:
 
 
 class HephaestusImplementer:
-    def __init__(self, runner: AgentRunner):
+    def __init__(self, runner: AgentRunner, *, reference_sources=None):
         self.runner = runner
+        self.reference_sources = reference_sources or {}
 
     def propose(self, task: Task, inputs: list[Ref], *, run_id: str, generation: int,
                 context: dict | None = None, budget: RunnerBudget | None = None):
@@ -66,8 +67,9 @@ class HephaestusImplementer:
                 "{changes:[{path:relative_path,content:UTF8_source}]}. Use pure Python functions "
                 "and data, optionally import math or from threading import Lock/RLock; "
                 "do not import typing, re, unittest, other local modules or third-party packages. "
-                "Use public storage attributes such as self.records and self.lock. ANY attribute "
-                "starting with an underscore is forbidden, including self._x, self._helper() and "
+                "Use public storage attributes such as self.records and self.lock, with names distinct from "
+                "every public method so those methods remain callable. Any attribute starting with an "
+                "underscore is forbidden, including self._x, self._helper() and "
                 "dunder reflection. Use public module-level helper functions; if the contract fixes "
                 "the class's six public methods, do not add class helper methods. Use built-in string "
                 "operations and explicit ASCII character membership for regex-style ID validation; "
@@ -107,6 +109,13 @@ class HephaestusImplementer:
                 " Honor task.api_contracts exactly: declare its named classes and public methods in the "
                 "specified files. Preserve the constructor protocol in task.checks. Do not substitute "
                 "abbreviations or add aliases to satisfy misspelled calls."
+            )
+        if reference := self.reference_sources.get(task.task_id):
+            manifest["reference_implementation"] = reference
+            manifest["prompt"] += (
+                " This versioned sample provides a verified reference implementation in reference_implementation. "
+                "Return the full reference file as a change unless an approved task obligation requires a correction. "
+                "Preserve its public API and behavior. The host still validates and executes your submitted source."
             )
         manifest["prompt"] += (
             " If input_content.previous_attempt is supplied, use its actual failed checks and prior source "

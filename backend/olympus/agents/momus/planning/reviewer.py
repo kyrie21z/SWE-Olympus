@@ -114,25 +114,6 @@ class MomusPlanReviewer:
         self.program_checks, self.program_check_id = program_checks, program_check_id
         self.review_context = review_context
 
-    def _granularity_findings(self, plan: Plan) -> list[SemanticFinding]:
-        implementation = [task for task in plan.tasks if task.type == "implement"]
-        findings: list[SemanticFinding] = []
-        if len(implementation) == 1:
-            covered = sorted({source for source in implementation[0].sources if source.startswith("FR-")})
-            if len(covered) >= 3:
-                findings.append(
-                    SemanticFinding(
-                        code="TASK_GRANULARITY",
-                        severity="blocker",
-                        task_id=implementation[0].task_id,
-                        message=(
-                            f"任务 {implementation[0].task_id} 将 {len(covered)} 条需求合并为一个实现任务，"
-                            "无法独立验收，需拆分"
-                        ),
-                    )
-                )
-        return findings
-
     def _trace_findings(self, req: Requirement, ds: Design) -> list[SemanticFinding]:
         req_ids = requirement_ids(req)
         elements = ds.content["elements"]
@@ -201,7 +182,8 @@ class MomusPlanReviewer:
         manifest = {
             "prompt": (
                 "You are Momus, independent plan reviewer. Compare the full requirement, design and tasks; "
-                "check meaning, omissions, coverage, granularity and out-of-scope work. "
+                "check meaning, omissions, coverage, granularity and out-of-scope work. Related behaviors "
+                "can share a task when its outputs and independent checks cover them. "
                 "Return JSON verdict and findings (code, severity=blocker/important, task_id or null, message). "
                 "For each blocker identify an approved requirement or design obligation, the affected task, "
                 "and how the current plan fails to produce or verify the required outcome. Use one finding per "
@@ -220,15 +202,17 @@ class MomusPlanReviewer:
         if self.review_context is not None:
             manifest["execution_context"] = self.review_context
             manifest["prompt"] += (
-                " Evaluate deliverables against execution_context. Momus independently authors frozen "
+                " Use execution_context to check whether each proposed task can execute. Its task_types "
+                "enumerate supported types. Require integrate or doc tasks only when the approved inputs "
+                "explicitly require deliverables that the current plan fails to produce or verify. "
+                "Cite the exact approved requirement or design element ID and its wording for any missing deliverable. "
+                "Momus independently authors frozen "
                 "executable checks stored by the harness; read-only tasks run those checks and emit real reports. "
                 "Do not demand imaginary model-authored test modules from read-only tasks. Require a reachable "
                 "author for documentation files, and real ancestor report inputs for report aggregation. "
                 "The approved requirement and design define scope: do not add standalone files, extra artifacts "
-                "or stricter delivery formats merely by preference. A complete README.md authored by a reachable "
-                "Hephaestus implementation task and verified by a Hermes documentation task can satisfy approved "
-                "Chinese run-instruction obligations; an additional standalone guide is required only if the "
-                "approved inputs explicitly demand it. Verify that the README content covers the actual obligations. "
+                "or stricter delivery formats merely by preference. When approved inputs require documentation, "
+                "check that its declared author and verification cover the actual obligations. "
                 "At execution time source_metadata[report_path]['data']['checks'][i]['output'] and exit_code "
                 "come from real harness-executed checks. They are dynamic execution evidence, not interface "
                 "declarations or invented future results. A plan that parses actual observed counts from these "
@@ -351,7 +335,6 @@ class MomusPlanReviewer:
             )
             for issue in report.issues
         ]
-        findings.extend(self._granularity_findings(plan))
         findings.extend(self._trace_findings(req, ds))
         program_pairs = {(issue.code, issue.task_id, issue.source_id) for issue in report.issues}
         for hit in scan_out_of_scope(req, plan.tasks):

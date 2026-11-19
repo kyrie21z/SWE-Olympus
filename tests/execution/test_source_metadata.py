@@ -92,6 +92,27 @@ class InventoryService:
     assert facts["annotations"] == {"Result.ok": "bool", "Result.data": "dict[str, object]"}
 
 
+def test_public_initializer_metadata_excludes_the_receiver_and_private_symbols():
+    source = '''class Empty:
+    def __init__(self):
+        pass
+
+class Configured:
+    def __init__(this, /, *, limit: int = 10):
+        pass
+
+class Inherited(Empty):
+    pass
+'''
+    facts = build_source_metadata({"example.py": source})["example.py"]
+    assert facts["initializers"] == {
+        "Empty": [],
+        "Configured": [{"name": "limit", "kind": "keyword_only", "annotation": "int", "has_default": True}],
+    }
+    assert facts["public_symbols"] == ["Configured", "Empty", "Inherited"]
+    assert facts["signatures"] == {}
+
+
 @pytest.mark.parametrize("relative", ["../secret.py", "/absolute.py", "C:/secret.py", "./file.py", "src\\file.py"])
 def test_source_metadata_rejects_unbounded_or_noncanonical_paths(relative):
     with pytest.raises(ValueError, match="relative paths"):

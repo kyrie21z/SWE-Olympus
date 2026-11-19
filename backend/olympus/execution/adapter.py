@@ -204,6 +204,11 @@ class LocalPythonExecutor:
         with self.scheduler._lock, self._lock:
             self._validate_dispatch(task_id)
 
+    def has_attempt_capacity(self, task_id: str) -> bool:
+        task = self.scheduler.tasks[task_id]
+        with self._lock:
+            return sum(job.task.task_id == task_id for job in self._jobs.values()) < 1 + task.policy.max_auto_retries
+
     def _validate_dispatch(self, task_id: str) -> None:
         if self.scheduler.ctx.run.mode not in {"real_tool", "real_model"}:
             raise ValueError("real local execution requires an explicit real_tool/real_model run")
@@ -220,7 +225,7 @@ class LocalPythonExecutor:
             raise ValueError("unbounded implementation scope")
         for scope in task.write_scope:
             resolve_scoped(self.root, scope)
-        if sum(j.task.task_id == task_id for j in self._jobs.values()) >= 1 + task.policy.max_auto_retries:
+        if not self.has_attempt_capacity(task_id):
             raise ValueError("task execution attempt limit reached")
         if len(self.ledger.entries()) >= self.max_tool_calls:
             raise ValueError("local execution tool budget exhausted")

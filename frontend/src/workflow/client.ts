@@ -37,6 +37,7 @@ export interface WorkflowSnapshot {
   model_mode?: "offline" | "online";
   plan_bound?: boolean;
   offline_supported?: boolean;
+  verified_sample_available?: boolean;
   pending_model_role?: AgentRole | null;
   updated_at?: string;
   design_revision?: { round: number; limit: number; started_at: string; finding_count: number };
@@ -51,6 +52,7 @@ export interface WorkflowSnapshot {
   plan_review: unknown;
   plan_review_record?: unknown;
   acceptance?: Record<string, unknown>;
+  acceptance_source?: "verified_sample";
   executions: unknown[] | Record<string, unknown>;
   retry_action?: WorkflowAction | null;
   retry_safe?: boolean;

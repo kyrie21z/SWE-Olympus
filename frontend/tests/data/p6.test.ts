@@ -13,6 +13,7 @@ import {
   currentStageIndex,
   deriveStagesFromView,
   deriveTraceRowsFromView,
+  executionWaits,
 } from "../../src/p6/model";
 
 function contractView(): RunView {
@@ -73,6 +74,22 @@ describe("P6 HTTP view projection", () => {
     expect(
       stages.find((stage) => stage.key === "execute")?.description,
     ).toContain("0 / 8");
+  });
+
+  it("separates a ready task waiting for an executor from an actual failed task", () => {
+    const view = contractView();
+    view.snapshot.status = "active";
+    const [running, queued] = view.snapshot.tasks;
+    running.state = "running";
+    queued.state = "ready";
+    view.projection.sets.blocked = [{task_id: queued.task_id, why: ["执行者 Momus 已被占用"]}];
+    const stage = () => deriveStagesFromView(view, buildTaskViewsFromView(view)).find(item => item.key === "execute");
+    expect(stage()).toMatchObject({status: "in_progress", description: expect.stringContaining("1 项排队")});
+    expect(executionWaits(view)).toEqual({blocked: [], queued: [{task_id: queued.task_id, why: "执行者 Momus 已被占用"}]});
+
+    running.state = "failed";
+    expect(stage()).toMatchObject({status: "blocked", description: `${running.task_id}: 任务执行或检查失败`});
+    expect(executionWaits(view).blocked).toHaveLength(1);
   });
 
   it("binds stage approvals to arbitrary trace IDs, versions and fingerprints", () => {
