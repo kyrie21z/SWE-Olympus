@@ -346,6 +346,7 @@ def _metadata_schema_issues(tree):
     parameters and unknown expressions do not acquire a guessed metadata shape.
     """
     signature_keys = {"parameters", "return_annotation"}
+    report_keys = {"task", "executor", "checks", "inputs"}
     assignments, bound = {}, Counter()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
@@ -379,7 +380,12 @@ def _metadata_schema_issues(tree):
             base = shape(node.value, seen)
             key = node.slice.value if isinstance(node.slice, ast.Constant) else None
             if base == "root":
-                return "python" if isinstance(key, str) and PurePosixPath(key).suffix.lower() == ".py" else None
+                if isinstance(key, str):
+                    path = PurePosixPath(key)
+                    if path.suffix.lower() == ".py":
+                        return "python"
+                    if path.name == "check-report.json":
+                        return "report"
             if base == "signatures":
                 return "signature"
             if base == "python" and key == "signatures":
@@ -397,12 +403,25 @@ def _metadata_schema_issues(tree):
                 "['annotation']、['has_default']。qualified_name 必须使用任务声明的真实限定名。")
 
     issues = []
+
+    def check_report_field(node, key, entry):
+        if (isinstance(key, ast.Constant) and isinstance(key.value, str)
+                and key.value in report_keys and shape(entry) == "report"):
+            issues.append(f"第 {node.lineno} 行：实际检查报告字段 {key.value} 在 JSON 的 data 内。"
+                          "使用 report = source_metadata[实际报告路径]['data']，再读取 report['checks'] 等字段。")
+
     for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript):
+            check_report_field(node, node.slice, node.value)
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get" and node.args):
+            check_report_field(node, node.args[0], node.func.value)
         if isinstance(node, ast.Compare):
             for left, operation, right in zip([node.left, *node.comparators], node.ops, node.comparators):
-                if (isinstance(operation, (ast.In, ast.NotIn)) and isinstance(left, ast.Constant)
-                        and shape(right) == "signature" and left.value not in signature_keys):
-                    issues.append(hint(node))
+                if isinstance(operation, (ast.In, ast.NotIn)) and isinstance(left, ast.Constant):
+                    if shape(right) == "signature" and left.value not in signature_keys:
+                        issues.append(hint(node))
+                    check_report_field(node, left, right)
     return list(dict.fromkeys(issues))
 
 
@@ -696,11 +715,13 @@ def _task_manifest(requirement, design, task, inputs, *, frozen_inputs=None, api
                                     "return_annotation": "unevaluated annotation string or null",
                                 },
                             },
+                            "initializers": "mapping: public class qualified name -> tuple of declared initializer "
+                                            "parameters without the receiver; only direct undecorated declarations",
                             "annotations": "mapping of public module/class field qualified names to "
                                            "unevaluated annotation strings",
                             "data": "parsed actual JSON for .json files; objects are read-only mappings "
                                     "(not dict instances), arrays are tuples (not list instances)",
-                            "text": "source text for .md/.txt files only"},
+                            "text": "source text for .py, .md and .txt files"},
         },
         "source_metadata_example": {
             "note": "source_metadata is already a global mapping: DO NOT import it or use attribute access. "
@@ -743,6 +764,10 @@ def _task_manifest(requirement, design, task, inputs, *, frozen_inputs=None, api
             "never return null for setup. The 64 KB per-script limit applies after setup and body are joined. "
             "Use real assertions against the "
             "specified interfaces, edge cases and requirements, never assert True or author claims. "
+            "Respect business preconditions when building fixtures: assert setup operations succeed, and "
+            "release an exclusive resource before a second successful reservation of that same resource. "
+            "For invalid-input checks, call each public method directly with the declared argument count. "
+            "Never use identity comparisons against freshly accessed bound methods to choose arguments. "
             "For negative conditions use assert not predicate (for example assert 'initial' not in params), "
             "rather than literal assert False inside complex control flow. "
             "api_contracts gives authoritative exact file paths, exported class names and promised public "
@@ -765,11 +790,16 @@ def _task_manifest(requirement, design, task, inputs, *, frozen_inputs=None, api
             "source_metadata IS NOT A MODULE: never import source_metadata or from source_metadata import anything. "
             "It is already injected as a deeply read-only GLOBAL MAPPING. Use dictionary indexing, not module "
             "attribute access. Index it by the actual declared "
-            "relative path; inspect import_roots and public_symbols by membership, assert required documentation "
+            "relative path; import_roots lists imports used by the file, not the file's own module name. "
+            "Verify a module's public contract by checking its file entry and public_symbols. Assert required documentation "
             "markers in the matching docstrings entry, and assert required instructions in a documentation file's "
             "text. For method parameter/name/kind checks, read signatures[public_qualified_name]['parameters']; "
             "each parameter has name, kind, annotation, has_default; self/cls are included as declared. "
             "Kinds are positional_only, positional_or_keyword, var_positional, keyword_only, var_keyword. "
+            "For a statically declared initializer use facts['initializers'][class_name], whose parameter "
+            "tuple excludes the receiver. Public signatures contains no initializer entries. When the class "
+            "does not declare an initializer, check construction by calling the class in an implementation "
+            "or test task. In an interface-only check, inspect initializer parameters only if declared. "
             "Use signatures[public_qualified_name]['return_annotation'] or annotations for declared type syntax; "
             "annotations are unevaluated strings, not behavior evidence. Do not import typing to inspect them. "
             "For completed ancestor checks, use available_inputs.physical_report_paths and read "
@@ -821,7 +851,7 @@ def _task_manifest(requirement, design, task, inputs, *, frozen_inputs=None, api
     if task.type == "interface":
         manifest["prompt"] += (
             "\nINTERFACE STAGE: use only flat, top-level assertions on the pre-injected source_metadata mapping "
-            "for this task's declared public symbols/signatures/docstrings/import facts. Do not import "
+            "for this task's declared public symbols/signatures/initializers/docstrings/import facts. Do not import "
             "source_metadata, unittest or implementation modules. Do not create unittest classes, helper "
             "classes or helper functions (_make or otherwise). Do not test business behavior supplied only "
             "by later implementation tasks. Keep each check body short and specific to its declared check ID."

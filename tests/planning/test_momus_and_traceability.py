@@ -275,14 +275,12 @@ def test_momus_blocks_a_cyclic_plan(bundle):
     assert result.revision_recommended is True
 
 
-def test_momus_rejects_a_monolithic_task_card(bundle):
+def test_momus_allows_one_implementation_task_covering_multiple_requirements(bundle):
     plan = monolithic_plan(bundle)
     assert validate_plan_semantics(plan, bundle.requirement, bundle.design).valid is True
     result = MomusPlanReviewer().review(plan, bundle.requirement, bundle.design)
-    assert result.review.verdict == "blocked"
-    finding = next(finding for finding in result.findings if finding.code == "TASK_GRANULARITY")
-    assert finding.task_id == "T02"
-    assert finding.severity == "blocker"
+    assert result.review.verdict == "passed"
+    assert result.record.blocking_finding_ids == []
 
 
 def test_momus_independently_checks_design_source_alignment(bundle):

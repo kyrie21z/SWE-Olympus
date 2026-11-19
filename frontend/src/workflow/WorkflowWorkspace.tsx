@@ -239,6 +239,8 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
   const consoleUrl = snapshot && planBound ? `?run=${encodeURIComponent(snapshot.run_id)}#console` : null;
   const canCreate = !workflowId || missingWorkflow;
   const failedOnline = snapshot?.stage === "error" && snapshot.model_mode === "online" && !planBound;
+  const canStartVerified = snapshot?.verified_sample_available && snapshot.acceptance_source !== "verified_sample" &&
+    (snapshot.stage === "execution_blocked" || failedOnline) && !snapshot.successor_workflow_id;
   const reviewTab = snapshot?.stage === "design_review_blocked" ? "design" : snapshot?.stage === "plan_review_blocked" ? "plan" : null;
   const planReview = snapshot?.plan_review_record ?? snapshot?.plan_review;
   const approvalReviewTab = snapshot?.stage === "design_pending_approval" ? "design" : snapshot?.stage === "plan_pending_approval" ? "plan" : null;
@@ -284,6 +286,7 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
       <Steps className="workflow-steps" size="small" current={snapshot ? workflowStageIndex(snapshot) : 0} status={snapshot?.stage === "error" || snapshot?.stage.endsWith("_blocked") ? "error" : snapshot?.stage === "completed" ? "finish" : "process"} items={[{title:"需求接纳"},{title:"设计与审查"},{title:"计划与检查"},{title:"受控执行"},{title:"最终验收"}]} />
       {synthetic && <Alert type="info" showIcon title="构造测试需求" description="本次运行继续保留构造来源标识；测试确认不代表真实用户的生产授权。" />}
       {snapshot?.model_mode === "offline" && <Alert type="info" showIcon title="离线模式" description="使用与需求版本匹配的预置 Agent 响应。Python 检查在本机实际执行。" />}
+      {snapshot?.acceptance_source === "verified_sample" && <Alert type="info" showIcon title="使用已验证的样例验收" description="各次运行使用同一组验收脚本。在线 Agent 审查计划、提交实现并复核实际执行结果。" />}
       {actionError && <Alert type="error" showIcon title={actionError} />}
       {loadError && <Alert type="warning" showIcon title={missingWorkflow ? "找不到先前的运行，可为此文件重新建立运行" : "后端连接暂时中断，正在自动重连"} description={missingWorkflow ? undefined : `${loadError} 当前显示上次取得的状态；恢复连接后会自动补取进度。`} />}
       {storageError && <Alert type="warning" showIcon title={storageError} />}
@@ -315,12 +318,13 @@ export function WorkflowWorkspace({file, report, onNewImport, onSettings}: {file
         {canCreate && <Button type="primary" loading={busy} disabled={busy || !modelMode || !report?.requirement || !report.canSave || (synthetic && !allowSynthetic)} onClick={() => void create()}>{missingWorkflow ? "重新建立运行" : "建立运行并核验需求"}</Button>}
         {!report?.requirement && !workflowId && <span className="workflow-intro">生成设计规格需要有效的 REQ JSON；文本材料请先整理为结构化需求。</span>}
         {snapshot?.successor_workflow_id && <Button type="primary" loading={busy} disabled={busy} onClick={() => void openLinkedWorkflow(snapshot.successor_workflow_id!)}>打开修订后的运行</Button>}
-        {next && !(snapshot?.successor_workflow_id && next.action === "execute") && <Button type="primary" aria-label={next.label} loading={busy} disabled={busy || generating || !permitted || planNeedsRead} onClick={() => void dispatch(next.action, next.tab)}>{next.label}</Button>}
+        {canStartVerified && <Button type="primary" loading={busy} disabled={busy || !report?.canSave} onClick={() => void create("online")}>用已验证样例新建运行</Button>}
+        {next && !(snapshot?.successor_workflow_id && next.action === "execute") && <Button type={canStartVerified ? "default" : "primary"} aria-label={next.label} loading={busy} disabled={busy || generating || !permitted || planNeedsRead} onClick={() => void dispatch(next.action, next.tab)}>{next.label}</Button>}
         {retry && !(snapshot?.successor_workflow_id && retry === "execute") && <Button loading={busy} disabled={busy} onClick={() => void dispatch(retry)}>重试当前阶段</Button>}
         {workflowId && <Button loading={busy && !next} disabled={busy} icon={<RefreshCw size={15} />} onClick={() => void refresh()}>刷新状态</Button>}
         {consoleUrl && <Button href={consoleUrl}>查看此运行控制台</Button>}
         {canStartOffline && <Button disabled={busy || !report?.canSave} onClick={() => void create("offline")}>用离线样例新建运行</Button>}
-        {failedOnline && !retry && <Button disabled={busy || !report?.canSave} onClick={() => void create("online")}>新建在线运行</Button>}
+        {failedOnline && !retry && !canStartVerified && <Button disabled={busy || !report?.canSave} onClick={() => void create("online")}>新建在线运行</Button>}
       </div>
       {snapshot?.stage === "execution_blocked" && <p className="workflow-intro">{snapshot.successor_workflow_id ? "请在修订后的运行中查看进度并完成后续批准。" : "请先在此运行控制台中处理失败任务或恢复暂停，再继续执行；结果未知的请求需要先核对。"}</p>}
       {generating && !loadError && <p className="workflow-intro" role="status">

@@ -61,6 +61,15 @@ def test_legal_record_keys_open_symbol_maps_and_json_payloads_keep_working():
     exec(compile(source, "<valid-metadata-check>", "exec"), {"source_metadata": source_facts()})
 
 
+@pytest.mark.parametrize("predicate", ["'checks' in facts", "facts['checks']", "facts.get('checks')"])
+def test_report_fields_require_the_data_payload(predicate):
+    setup = "facts = source_metadata['reports/loan/check-report.json']\n"
+    with pytest.raises(OutputSchemaError, match="incompatible source metadata") as failure:
+        validate_check(setup + f"assert {predicate}\n", [])
+    assert "['data']" in failure.value.hint
+    validate_check(setup + "report = facts['data']\nassert report['checks']\n", [])
+
+
 class MetadataCorrectionProvider(MockProvider):
     mode = "real_model"
 

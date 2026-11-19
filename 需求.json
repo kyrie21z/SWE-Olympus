@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "kind": "REQ",
+  "object_id": "REQ-LAB-EQUIPMENT-LENDING",
+  "version": 3,
+  "content_hash": "8b97d81ddb298a956f8622b221ba85742f5cde0d770d5348d3e82a4e100c93c7",
+  "provenance": [
+    {
+      "schema_version": "1.0",
+      "kind": "synthetic_fixture",
+      "source_id": "LAB-EQUIPMENT-LENDING-DEMO-V3",
+      "locator": "构造样例，验证三个模块的并行实现、独立测试与汇合验收。"
+    }
+  ],
+  "content": {
+    "requirements": [
+      {
+        "id": "FR-001",
+        "text": "equipment_catalog.py 提供 EquipmentCatalog()，以 register(equipment_id) 登记设备，get_equipment(equipment_id) 查询状态。",
+        "acceptance": "登记 CAM-1 成功后返回 {equipment_id:'CAM-1',status:'AVAILABLE'}。重复登记报 DUPLICATE，未知设备报 NOT_FOUND，编号区分大小写。"
+      },
+      {
+        "id": "FR-002",
+        "text": "EquipmentCatalog 提供 claim(equipment_id) 和 release(equipment_id)，分别变为 UNAVAILABLE 和 AVAILABLE，供借还模块调用。",
+        "acceptance": "占用已占设备报 UNAVAILABLE，释放未占设备报 INVALID_TRANSITION，两个方法对未知设备均报 NOT_FOUND。失败前后状态一致，成功返回变更后的设备快照。"
+      },
+      {
+        "id": "FR-003",
+        "text": "loan_service.py 提供 LoanService(catalog)。reserve(loan_id,equipment_id) 调用已注入目录的 claim，成功时写入 RESERVED 借用单。",
+        "acceptance": "同单同设备重试返回该单当前状态。已有单号改用另一设备报 CONFLICT；新单预订未知设备报 NOT_FOUND，设备已占报 UNAVAILABLE。失败不新增借用单。"
+      },
+      {
+        "id": "FR-004",
+        "text": "LoanService 提供 checkout(loan_id)、return_equipment(loan_id)、cancel(loan_id)，仅允许 RESERVED→CHECKED_OUT→RETURNED 或 RESERVED→CANCELLED。",
+        "acceptance": "领用后目录状态仍为 UNAVAILABLE，归还或取消调用目录 release 后恢复 AVAILABLE。成功返回更新后的借用单，非法动作报 INVALID_TRANSITION，未知单号报 NOT_FOUND。"
+      },
+      {
+        "id": "FR-005",
+        "text": "LoanService.history(equipment_id) 按预订先后返回指定设备的所有借用单快照，包含正在办理及已结束的借用单。",
+        "acceptance": "每条含 loan_id、equipment_id、status。已登记设备无记录时返回空列表，未知设备报 NOT_FOUND。改动结果中的记录不影响后续查询，另一设备的记录不混入。"
+      },
+      {
+        "id": "FR-006",
+        "text": "loan_report.py 提供 LoanReport()，summarize(records) 根据传入的借用历史列表统计状态。输入为 LoanService.history 返回的 data，统计模块也可用同形状数据独立运行。",
+        "acceptance": "data 含 total、reserved、checked_out、returned、cancelled 五个整数字段。分别包含四种状态各一条时 total=4、各分项=1；空列表各字段为0。调用不修改 records。"
+      },
+      {
+        "id": "NFR-001",
+        "text": "三个模块使用纯 Python 和单进程内存，借还通过注入的 catalog 对象调用目录，统计只消费历史列表。所有公开业务方法统一返回字典。",
+        "acceptance": "成功统一 {ok:true,data:值}，失败 {ok:false,error:{code:错误码}}。空编号或非字符串报 INVALID_ARGUMENT，失败不改变状态。两个独立目录及借还实例的数据互不影响。"
+      },
+      {
+        "id": "NFR-002",
+        "text": "提供自动化测试。交付计划共七个任务：三个实现任务、三个独立测试任务、一个集成验收任务。每个模块各有一个实现和一个独立测试，集成验收读取三个测试报告。",
+        "acceptance": "三个模块分别生成一份测试通过的报告。集成验收登记两台设备，在第一台做一次借出归还和一次预订取消，确认其恢复可借，统计 total=2、returned=1、cancelled=1，第二台各字段为0。"
+      }
+    ],
+    "out_of_scope": [
+      "网页、HTTP 服务、数据库和磁盘持久化",
+      "登录、实名资料、收费和到期提醒",
+      "并发调度、定时任务、跨进程共享状态"
+    ]
+  },
+  "confirmation": null
+}

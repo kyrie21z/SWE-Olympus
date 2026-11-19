@@ -32,6 +32,7 @@ from olympus.requirements_bridge import RequirementBridge
 from olympus.reviews.common import CommonReviewer, ReviewRecord
 
 from .acceptance import generate_acceptance, migrate_acceptance_checkpoint, validate_executable_plan, verify_acceptance_checkpoint
+from . import lab_equipment
 from .document_normalization import normalize_document_authorship
 from .offline import OfflineRequirementUnsupported, make_offline_runner, supports_offline
 
@@ -78,13 +79,13 @@ class LocalPlanner(DaedalusPlanner):
         manifest["execution_profile"] = {
             "capabilities": LOCAL_EXECUTION_CAPABILITIES,
             "implementation": "interface/implement tasks: executor Hephaestus, reviewer Argus",
-            "checking": "test/integrate/doc tasks: executor Momus or Hermes, reviewer Argus; read-only execution of independently frozen acceptance scripts against ancestor artifacts, producing verified reports",
+            "checking": "test tasks are required for requirement coverage; integrate and doc tasks are optional unless approved deliverables need them. Momus or Hermes runs read-only frozen checks against ancestor artifacts; Argus reviews the resulting reports.",
             "runtime": "pure Python; math and from threading import Lock/RLock only; no third-party packages",
             "scopes": "bounded relative paths; preserve module/function names from design interfaces",
             "inputs": "artifact IDs produced by ancestors only; each task must run with these inputs alone",
             "interface": "use executable .py contracts and built-in Python annotations; validate public signatures/source schema at interface stage, and defer real business return-value tests to the implementation tasks that supply that behavior",
             "shared_files": "tests that later aggregate reports should consume a compatible final implementation version; do not merge artifacts containing conflicting revisions of the same source path",
-            "granularity": "split implementation across tasks when the requirement has three or more FR items",
+            "granularity": "For one Python module with no independent implementation consumers, create one implement task with the full public API and one test task consuming it. Do not add a separate interface task that writes the same module. Split independently writable modules when useful.",
             "coverage": "follow coverage_obligations; test/doc delivery is not implemented by adding unrelated sources to an implementation task",
             "repair": "fix all active blockers and important findings in one complete revision; retain existing task IDs and source-backed checks",
             "deliverables": "required implementation and documentation files must be authored by bounded Hephaestus interface/implement tasks; Momus independently authors executable acceptance scripts before implementation, and read-only tasks run them against declared ancestor inputs",
@@ -350,7 +351,9 @@ class WorkflowService:
         runtime = self.registry.get(doc["run_id"])
         doc["snapshot"] = runtime.ctx.run.model_dump(mode="json")
         doc["plan_bound"] = bool(doc["approvals"].get("plan")) and runtime.scheduler is not None
-        doc["offline_supported"] = supports_offline(Requirement.model_validate(doc["requirement"]))
+        requirement = Requirement.model_validate(doc["requirement"])
+        doc["offline_supported"] = supports_offline(requirement)
+        doc["verified_sample_available"] = lab_equipment.matches(requirement)
         if doc["stage"] in {"design_generating", "plan_generating"}:
             runner = self._runners.get(doc["run_id"])
             entries = runner.ledger.entries() if runner else []
@@ -626,7 +629,14 @@ class WorkflowService:
                 self._select_design_mode(doc)
             if action in ONLINE_ROLES:
                 if doc.get("model_mode", "online") == "online" and self.missing_online_roles:
-                    missing = self.missing_online_roles(ONLINE_ROLES[action])
+                    roles = ONLINE_ROLES[action]
+                    if action in {"generate_design", "generate_plan"}:
+                        req = Requirement.model_validate(doc["requirement"])
+                        current = doc.get("design")
+                        if lab_equipment.matches(req) and (current is None or
+                                Design.model_validate(current).ref() == lab_equipment.design_for(req).ref()):
+                            roles = ("Momus",)
+                    missing = self.missing_online_roles(roles)
                     if missing:
                         raise ProviderNotConfiguredError(f"请先完成 {'、'.join(missing)} 的 API 设置并测试连接。")
                 runner = self._runner(doc)
@@ -813,10 +823,16 @@ class WorkflowService:
         design = Design.model_validate(doc["design"]) if doc.get("design") else None
         if design and design.requirement != req.ref():
             raise WorkflowError("设计草稿所引用的需求已变化")
+        template = lab_equipment.design_for(req) if doc["model_mode"] == "online" and lab_equipment.matches(req) else None
+        use_template = template is not None and (design is None or design.ref() == template.ref())
         report = ReviewRecord.model_validate(doc["design_review"]) if design and doc.get("design_review") else None
         limit = DESIGN_REVISION_LIMIT if report else max(0, 2 - (design.version if design else 1))
+        if use_template:
+            limit = 0
+            if report and report.review.verdict != "passed":
+                report = None
         if report is None:
-            design = design or designer.generate(req, run_id=doc["run_id"])
+            design = design or (template if use_template else designer.generate(req, run_id=doc["run_id"]))
             doc["design"] = design.model_dump(mode="json")
             report = reviewer.review(req, design, run_id=doc["run_id"])
         phase_started = doc["updated_at"]
@@ -898,6 +914,22 @@ class WorkflowService:
                 self._save(doc)
 
         previous = ReviewRecord.model_validate(doc["plan_review_record"]) if doc.get("plan_review_record") else None
+        if (doc["model_mode"] == "online" and lab_equipment.matches(req)
+                and design.ref() == lab_equipment.design_for(req).ref()):
+            template = planner._materialize({"tasks": lab_equipment.read_json("tasks")}, req, design, "real_model")
+            template = template.model_copy(update={"provenance": [lab_equipment.provenance("tasks")]})
+            if saved is None or saved.ref() == template.ref():
+                doc["sample_plan_ref"] = template.ref().model_dump(mode="json")
+                if not was_passed or previous is None:
+                    report = reviewer.review(template, req, design)
+                    remember_review(template, report.record)
+                    if report.review.verdict != "passed":
+                        doc["stage"] = "plan_review_blocked"
+                        return
+                PlanService().prepare(req, design, template)
+                self._generate_acceptance(doc, runner, req, design, template)
+                doc["stage"] = "plan_pending_approval"
+                return
         if saved and previous:
             previous = CommonReviewer().validate_and_record(previous.submission, current_target=saved.ref(),
                                                              expected_author="Daedalus",
@@ -1022,6 +1054,11 @@ class WorkflowService:
                     "revision_baseline": proposal["baseline"], "to_plan": binding, "reused_tasks": list(reused),
                 }
             doc["acceptance"], doc["acceptance_plan"] = reused, binding
+            if doc.get("sample_plan_ref") == binding:
+                doc["acceptance"] = lab_equipment.frozen_for(plan)
+                doc["acceptance_source"] = "verified_sample"
+            else:
+                doc.pop("acceptance_source", None)
         with self._lock:
             self._save(doc)
 
@@ -1083,8 +1120,10 @@ class WorkflowService:
             if runtime.scheduler is None:
                 raise WorkflowError("计划尚未批准或绑定")
             runner = self._runner(doc)
+            references = (lab_equipment.reference_sources(runtime.scheduler.plan)
+                          if doc.get("sample_plan_ref") == runtime.scheduler.plan.ref().model_dump(mode="json") else None)
             executor = LocalPythonExecutor(runtime.scheduler, self.root / run_id / "execution",
-                                           HephaestusImplementer(runner))
+                                           HephaestusImplementer(runner, reference_sources=references))
             for task in runtime.scheduler.plan.tasks:
                 executor.register_task(task.task_id, FrozenAcceptance.model_validate(doc["acceptance"][task.task_id]),
                     context={runtime.requirement.object_id: runtime.requirement.content,
@@ -1107,6 +1146,7 @@ class WorkflowService:
                     raise WorkflowError("启动运行被拒绝：" + receipt.reason_code)
                 runtime.persist()
         scheduler, executor = runtime.scheduler, service.executor
+        verified_sample = doc.get("sample_plan_ref") == scheduler.plan.ref().model_dump(mode="json")
         while True:
             with runtime.lock, scheduler._lock:
                 if runtime.ctx.run.status != "active":
@@ -1130,7 +1170,15 @@ class WorkflowService:
                     if not ready:
                         runtime.persist()
                         doc["stage"] = "execution_blocked"
-                        doc["error"] = {"code": "TASKS_BLOCKED", "message": "有任务失败或等待核对，请查看执行证据及运行控制台。"}
+                        failed = next((task.task_id for task in unfinished
+                                       if runtime.ctx.state_of(task.task_id) == "failed"), None)
+                        failed_attempt = scheduler.attempt_for(failed) if failed else None
+                        if failed_attempt:
+                            failure = executor.query_receipt(failed_attempt)
+                            doc["error"] = {"code": "EXECUTION_NOT_ACCEPTED", "task_id": failed,
+                                            "message": (failure.error or "任务未通过验收，请查看该任务的执行证据。")[:500]}
+                        else:
+                            doc["error"] = {"code": "TASKS_BLOCKED", "message": "有任务等待核对，请查看执行证据及运行控制台。"}
                         return
                     task_id = ready[0]
                     if scheduler.dispatch(task_id, executor) is None:
@@ -1146,8 +1194,17 @@ class WorkflowService:
                 with self._lock:
                     self._save(doc)
                 if status != "accepted":
+                    if (verified_sample and scheduler.tasks[task_id].type == "implement"
+                            and runtime.ctx.run.status == "active" and runtime.ctx.state_of(task_id) == "failed"
+                            and receipt.state == "failed" and any(check["exit_code"] != 0 for check in receipt.check_outputs)
+                            and executor.has_attempt_capacity(task_id)
+                            and runtime.ctx.run.calls_used < runtime.ctx.run.call_budget):
+                        runtime.ctx.transition(task_id, "ready", verification="unverified", actor="Zeus",
+                                               reason="已确认实现未通过固定检查，使用失败证据重试")
+                        runtime.persist()
+                        continue
                     doc["stage"] = "execution_blocked"
-                    doc["error"] = {"code": "EXECUTION_NOT_ACCEPTED", "message": reason[:500]}
+                    doc["error"] = {"code": "EXECUTION_NOT_ACCEPTED", "task_id": task_id, "message": reason[:500]}
                     return
 
     def _accept_run(self, doc, operation_id):

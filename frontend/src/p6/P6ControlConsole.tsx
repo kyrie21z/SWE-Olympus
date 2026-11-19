@@ -65,6 +65,7 @@ import {
   currentStageIndex,
   deriveStagesFromView,
   deriveTraceRowsFromView,
+  executionWaits,
   formatRunStatus,
   formatTaskState,
   formatVerification,
@@ -354,9 +355,7 @@ function BoundRunConsole({ client, runId }: { client: P6OlympusClient; runId: st
   const requiredTasks = taskViews.filter(({ task }) => task.required);
   const accepted = view.projection.progress.accepted;
   const required = view.projection.progress.required;
-  const blockedTasks = taskViews.filter(({ runtime }) =>
-    ["blocked", "failed"].includes(runtime.state),
-  );
+  const {blocked: blockedTasks, queued} = executionWaits(view);
   const activeTasks = taskViews.filter(({ runtime }) =>
     ["running", "verifying", "ready"].includes(runtime.state),
   );
@@ -566,12 +565,10 @@ function BoundRunConsole({ client, runId }: { client: P6OlympusClient; runId: st
           showIcon
           icon={<AlertTriangle size={18} />}
           title={`${blockedTasks
-            .map(({ task }) => task.task_id)
+            .map(({ task_id }) => task_id)
             .join("、")} 阻塞，后继任务保持等待`}
           description={
-            view.projection.sets.blocked
-              .map((item) => `${item.task_id}: ${item.why}`)
-              .join("；") || "等待后端允许的人工命令。"
+            blockedTasks.map((item) => `${item.task_id}: ${item.why}`).join("；")
           }
           action={
             <Button
@@ -608,23 +605,28 @@ function BoundRunConsole({ client, runId }: { client: P6OlympusClient; runId: st
             prefix={<Activity size={18} />}
           />
           <span className="p6-stat-foot">
-            ready {view.projection.sets.ready.length} · active{" "}
+            就绪 {view.projection.sets.ready.length} · 活跃{" "}
             {activeTasks.length}
           </span>
+          {queued.length > 0 && (
+            <Tooltip title={queued.map((item) => `${item.task_id}: ${item.why}`).join("；")}>
+              <Tag color="blue">排队 {queued.length}</Tag>
+            </Tooltip>
+          )}
         </Card>
         <Card>
           <Statistic
             title="阻塞"
-            value={view.projection.sets.blocked.length}
+            value={blockedTasks.length}
             prefix={<AlertTriangle size={18} />}
             styles={
-              view.projection.sets.blocked.length
+              blockedTasks.length
                 ? { content: { color: "#d4380d" } }
                 : undefined
             }
           />
           <span className="p6-stat-foot">
-            {view.projection.sets.blocked.map((item) => item.task_id).join("、") ||
+            {blockedTasks.map((item) => item.task_id).join("、") ||
               "无"}
           </span>
         </Card>

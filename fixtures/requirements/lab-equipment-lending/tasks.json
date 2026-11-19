@@ -1,0 +1,403 @@
+[
+  {
+    "task_id": "TASK-IMPL-CATALOG",
+    "type": "implement",
+    "goal": "Implement EquipmentCatalog with register, get_equipment, claim, release and uniform dict returns",
+    "sources": [
+      "FR-001",
+      "FR-002",
+      "NFR-001",
+      "ELEM-CATALOG-REGISTER",
+      "ELEM-CATALOG-GET",
+      "ELEM-CATALOG-DUPLICATE",
+      "ELEM-CATALOG-NOT-FOUND",
+      "ELEM-CATALOG-CASE-SENSITIVE",
+      "ELEM-CATALOG-CLAIM",
+      "ELEM-CATALOG-RELEASE",
+      "ELEM-CATALOG-UNAVAILABLE",
+      "ELEM-CATALOG-INVALID-TRANSITION",
+      "ELEM-CATALOG-STATE-CONSISTENCY",
+      "ELEM-NFR-INVALID-ARGUMENT",
+      "ELEM-NFR-FAILURE-NO-STATE-CHANGE",
+      "ELEM-NFR-ISOLATION"
+    ],
+    "inputs": [],
+    "outputs": [
+      "equipment_catalog.py"
+    ],
+    "depends_on": [],
+    "executor": "Hephaestus",
+    "reviewer": "Argus",
+    "write_scope": [
+      "equipment_catalog.py"
+    ],
+    "checks": [
+      "register('CAM-1') returns {ok:true,data:{equipment_id:'CAM-1',status:'AVAILABLE'}}; second register returns DUPLICATE; 'cam-1' succeeds independently",
+      "get_equipment('CAM-1') returns AVAILABLE snapshot; get_equipment('UNKNOWN') returns NOT_FOUND",
+      "claim('CAM-1') returns UNAVAILABLE; claim on UNAVAILABLE returns error; claim('UNKNOWN') returns NOT_FOUND",
+      "release('CAM-1') returns AVAILABLE; release on AVAILABLE returns INVALID_TRANSITION; release('UNKNOWN') returns NOT_FOUND",
+      "State snapshots before and after any failed claim or release remain identical",
+      "Methods with '' or 123 as equipment_id return {ok:false,error:{code:'INVALID_ARGUMENT'}}",
+      "Two independent EquipmentCatalog instances do not share data"
+    ],
+    "resources": [],
+    "priority": 0,
+    "policy": {
+      "schema_version": "1.0",
+      "max_auto_retries": 2,
+      "timeout_seconds": 120
+    },
+    "required": true,
+    "api_contracts": {
+      "equipment_catalog.py": {
+        "EquipmentCatalog": [
+          "register",
+          "get_equipment",
+          "claim",
+          "release"
+        ]
+      }
+    }
+  },
+  {
+    "task_id": "TASK-IMPL-LOAN",
+    "type": "implement",
+    "goal": "Implement LoanService with injected catalog and one history snapshot per loan in reservation order, reflecting the current status.",
+    "sources": [
+      "FR-003",
+      "FR-004",
+      "FR-005",
+      "NFR-001",
+      "ELEM-LOAN-RESERVE",
+      "ELEM-LOAN-RESERVE-RETRY",
+      "ELEM-LOAN-RESERVE-CONFLICT",
+      "ELEM-LOAN-RESERVE-NOT-FOUND",
+      "ELEM-LOAN-RESERVE-UNAVAILABLE",
+      "ELEM-LOAN-RESERVE-NO-RECORD",
+      "ELEM-LOAN-CHECKOUT",
+      "ELEM-LOAN-RETURN",
+      "ELEM-LOAN-CANCEL",
+      "ELEM-LOAN-CATALOG-AFTER-CHECKOUT",
+      "ELEM-LOAN-INVALID-TRANSITION",
+      "ELEM-LOAN-NOT-FOUND",
+      "ELEM-LOAN-HISTORY",
+      "ELEM-LOAN-HISTORY-EMPTY",
+      "ELEM-LOAN-HISTORY-NOT-FOUND",
+      "ELEM-LOAN-HISTORY-ISOLATION",
+      "ELEM-NFR-INVALID-ARGUMENT",
+      "ELEM-NFR-FAILURE-NO-STATE-CHANGE",
+      "ELEM-NFR-ISOLATION"
+    ],
+    "inputs": [
+      "equipment_catalog.py"
+    ],
+    "outputs": [
+      "loan_service.py"
+    ],
+    "depends_on": [
+      "TASK-IMPL-CATALOG"
+    ],
+    "executor": "Hephaestus",
+    "reviewer": "Argus",
+    "write_scope": [
+      "loan_service.py"
+    ],
+    "checks": [
+      "reserve('L1','CAM-1') returns RESERVED; repeated reserve returns same; reserve('L1','CAM-2') returns CONFLICT",
+      "reserve('L2','UNKNOWN') returns NOT_FOUND; reserve on UNAVAILABLE returns error; failed reserve adds no record",
+      "checkout('L1') returns CHECKED_OUT; catalog shows UNAVAILABLE after checkout",
+      "return_equipment('L1') returns RETURNED; catalog shows AVAILABLE after return",
+      "cancel('L1') returns CANCELLED; catalog shows AVAILABLE after cancel",
+      "checkout on RETURNED returns INVALID_TRANSITION; ops on 'UNKNOWN' loan_id return NOT_FOUND",
+      "Reserve L1, then checkout and return L1 before reserving L2 on CAM-1; history is [L1 RETURNED, L2 RESERVED]. CAM-2 is empty; unknown ID NOT_FOUND.",
+      "Mutating returned history list does not change next call; CAM-2 records absent from CAM-1 history",
+      "For each bad ID '' and 123 call reserve(bad,'CAM-1') and reserve('L1',bad) directly; both return INVALID_ARGUMENT and keep catalog/history unchanged.",
+      "Call checkout(bad), return_equipment(bad), cancel(bad), and history(bad) directly with '' and 123. Expect INVALID_ARGUMENT without changing state.",
+      "Use two separate catalogs and loan services; a loan reserved in the first service is absent from the second service's history."
+    ],
+    "resources": [],
+    "priority": 1,
+    "policy": {
+      "schema_version": "1.0",
+      "max_auto_retries": 2,
+      "timeout_seconds": 120
+    },
+    "required": true,
+    "api_contracts": {
+      "loan_service.py": {
+        "LoanService": [
+          "reserve",
+          "checkout",
+          "return_equipment",
+          "cancel",
+          "history"
+        ]
+      }
+    }
+  },
+  {
+    "task_id": "TASK-IMPL-REPORT",
+    "type": "implement",
+    "goal": "Implement LoanReport with summarize counting statuses from plain list of dicts",
+    "sources": [
+      "FR-006",
+      "NFR-001",
+      "ELEM-REPORT-SUMMARIZE",
+      "ELEM-REPORT-SUMMARIZE-EMPTY",
+      "ELEM-REPORT-IMMUTABLE",
+      "ELEM-REPORT-INDEPENDENT",
+      "ELEM-NFR-INVALID-ARGUMENT"
+    ],
+    "inputs": [],
+    "outputs": [
+      "loan_report.py"
+    ],
+    "depends_on": [],
+    "executor": "Hephaestus",
+    "reviewer": "Argus",
+    "write_scope": [
+      "loan_report.py"
+    ],
+    "checks": [
+      "summarize with one of each status returns total=4,reserved=1,checked_out=1,returned=1,cancelled=1",
+      "summarize([]) returns {ok:true,data:{total:0,reserved:0,checked_out:0,returned:0,cancelled:0}}",
+      "Input list identity and contents unchanged after summarize call",
+      "summarize accepts plain list of dicts matching history shape without LoanService dependency",
+      "Methods with invalid argument types return {ok:false,error:{code:'INVALID_ARGUMENT'}}"
+    ],
+    "resources": [],
+    "priority": 2,
+    "policy": {
+      "schema_version": "1.0",
+      "max_auto_retries": 2,
+      "timeout_seconds": 120
+    },
+    "required": true,
+    "api_contracts": {
+      "loan_report.py": {
+        "LoanReport": [
+          "summarize"
+        ]
+      }
+    }
+  },
+  {
+    "task_id": "TASK-TEST-CATALOG",
+    "type": "test",
+    "goal": "Run automated unit tests for equipment_catalog module covering FR-001, FR-002, NFR-001 and produce pass report",
+    "sources": [
+      "NFR-002",
+      "FR-001",
+      "FR-002",
+      "NFR-001",
+      "ELEM-TEST-CATALOG",
+      "ELEM-CATALOG-REGISTER",
+      "ELEM-CATALOG-GET",
+      "ELEM-CATALOG-DUPLICATE",
+      "ELEM-CATALOG-NOT-FOUND",
+      "ELEM-CATALOG-CASE-SENSITIVE",
+      "ELEM-CATALOG-CLAIM",
+      "ELEM-CATALOG-RELEASE",
+      "ELEM-CATALOG-UNAVAILABLE",
+      "ELEM-CATALOG-INVALID-TRANSITION",
+      "ELEM-CATALOG-STATE-CONSISTENCY",
+      "ELEM-NFR-INVALID-ARGUMENT",
+      "ELEM-NFR-FAILURE-NO-STATE-CHANGE",
+      "ELEM-NFR-ISOLATION"
+    ],
+    "inputs": [
+      "equipment_catalog.py"
+    ],
+    "outputs": [
+      "reports/TASK-TEST-CATALOG/check-report.json"
+    ],
+    "depends_on": [
+      "TASK-IMPL-CATALOG"
+    ],
+    "executor": "Momus",
+    "reviewer": "Argus",
+    "write_scope": [
+      "reports/TASK-TEST-CATALOG"
+    ],
+    "checks": [
+      "Verify registration, case sensitivity, duplicate rejection and missing equipment using direct public calls.",
+      "Verify a successful claim turns AVAILABLE to UNAVAILABLE and a successful release turns it back to AVAILABLE.",
+      "First claim CAM-1 successfully. Now snapshot UNAVAILABLE, attempt a second claim and assert UNAVAILABLE error, then compare with that snapshot.",
+      "Compare state only across a single failing release on AVAILABLE equipment; check unknown equipment errors without any successful claim in that comparison.",
+      "Pass '' and 123 to each public method and verify INVALID_ARGUMENT. Check two independently constructed catalogs do not share registrations."
+    ],
+    "resources": [],
+    "priority": 3,
+    "policy": {
+      "schema_version": "1.0",
+      "max_auto_retries": 2,
+      "timeout_seconds": 120
+    },
+    "required": true
+  },
+  {
+    "task_id": "TASK-TEST-LOAN",
+    "type": "test",
+    "goal": "Run automated unit tests for loan_service module covering FR-003, FR-004, FR-005, NFR-001 and produce pass report",
+    "sources": [
+      "NFR-002",
+      "FR-003",
+      "FR-004",
+      "FR-005",
+      "NFR-001",
+      "ELEM-TEST-LOAN",
+      "ELEM-LOAN-RESERVE",
+      "ELEM-LOAN-RESERVE-RETRY",
+      "ELEM-LOAN-RESERVE-CONFLICT",
+      "ELEM-LOAN-RESERVE-NOT-FOUND",
+      "ELEM-LOAN-RESERVE-UNAVAILABLE",
+      "ELEM-LOAN-RESERVE-NO-RECORD",
+      "ELEM-LOAN-CHECKOUT",
+      "ELEM-LOAN-RETURN",
+      "ELEM-LOAN-CANCEL",
+      "ELEM-LOAN-CATALOG-AFTER-CHECKOUT",
+      "ELEM-LOAN-INVALID-TRANSITION",
+      "ELEM-LOAN-NOT-FOUND",
+      "ELEM-LOAN-HISTORY",
+      "ELEM-LOAN-HISTORY-EMPTY",
+      "ELEM-LOAN-HISTORY-NOT-FOUND",
+      "ELEM-LOAN-HISTORY-ISOLATION",
+      "ELEM-NFR-INVALID-ARGUMENT",
+      "ELEM-NFR-FAILURE-NO-STATE-CHANGE",
+      "ELEM-NFR-ISOLATION"
+    ],
+    "inputs": [
+      "equipment_catalog.py",
+      "loan_service.py"
+    ],
+    "outputs": [
+      "reports/TASK-TEST-LOAN/check-report.json"
+    ],
+    "depends_on": [
+      "TASK-IMPL-CATALOG",
+      "TASK-IMPL-LOAN"
+    ],
+    "executor": "Momus",
+    "reviewer": "Argus",
+    "write_scope": [
+      "reports/TASK-TEST-LOAN"
+    ],
+    "checks": [
+      "Call reserve twice with the same loan and device; verify idempotency. Check unavailable, unknown equipment and conflict never add a record.",
+      "Exercise checkout, return and a separate reserve/cancel sequence; verify catalog state and invalid transitions or unknown loans.",
+      "Return L1 before reserving L2 on the same device. Check one latest row per loan in reservation order, empty/missing history and independent snapshots.",
+      "Call reserve with two positional arguments and other methods with one. Check invalid '' and 123, error codes, unchanged state and two-instance isolation."
+    ],
+    "resources": [],
+    "priority": 4,
+    "policy": {
+      "schema_version": "1.0",
+      "max_auto_retries": 2,
+      "timeout_seconds": 120
+    },
+    "required": true
+  },
+  {
+    "task_id": "TASK-TEST-REPORT",
+    "type": "test",
+    "goal": "Run automated unit tests for loan_report module covering FR-006, NFR-001 and produce pass report",
+    "sources": [
+      "NFR-002",
+      "FR-006",
+      "NFR-001",
+      "ELEM-TEST-REPORT",
+      "ELEM-REPORT-SUMMARIZE",
+      "ELEM-REPORT-SUMMARIZE-EMPTY",
+      "ELEM-REPORT-IMMUTABLE",
+      "ELEM-REPORT-INDEPENDENT",
+      "ELEM-NFR-INVALID-ARGUMENT"
+    ],
+    "inputs": [
+      "loan_report.py"
+    ],
+    "outputs": [
+      "reports/TASK-TEST-REPORT/check-report.json"
+    ],
+    "depends_on": [
+      "TASK-IMPL-REPORT"
+    ],
+    "executor": "Momus",
+    "reviewer": "Argus",
+    "write_scope": [
+      "reports/TASK-TEST-REPORT"
+    ],
+    "checks": [
+      "All unit tests covering summarize with mixed statuses returning total=4 and each count=1 pass",
+      "All unit tests covering summarize with empty list returning all zeros pass",
+      "All unit tests covering input immutability and independent operation with plain dicts pass"
+    ],
+    "resources": [],
+    "priority": 5,
+    "policy": {
+      "schema_version": "1.0",
+      "max_auto_retries": 2,
+      "timeout_seconds": 120
+    },
+    "required": true
+  },
+  {
+    "task_id": "TASK-INTEGRATE-ACCEPTANCE",
+    "type": "integrate",
+    "goal": "Integration acceptance test registering two devices, full lifecycle on first, verifying reports and producing pass report",
+    "sources": [
+      "NFR-002",
+      "FR-001",
+      "FR-002",
+      "FR-003",
+      "FR-004",
+      "FR-005",
+      "FR-006",
+      "NFR-001",
+      "ELEM-INTEGRATION-ACCEPTANCE",
+      "ELEM-CATALOG-REGISTER",
+      "ELEM-LOAN-RESERVE",
+      "ELEM-LOAN-CHECKOUT",
+      "ELEM-LOAN-RETURN",
+      "ELEM-LOAN-CANCEL",
+      "ELEM-LOAN-HISTORY",
+      "ELEM-REPORT-SUMMARIZE"
+    ],
+    "inputs": [
+      "equipment_catalog.py",
+      "loan_service.py",
+      "loan_report.py",
+      "reports/TASK-TEST-CATALOG/check-report.json",
+      "reports/TASK-TEST-LOAN/check-report.json",
+      "reports/TASK-TEST-REPORT/check-report.json"
+    ],
+    "outputs": [
+      "reports/TASK-INTEGRATE-ACCEPTANCE/check-report.json"
+    ],
+    "depends_on": [
+      "TASK-IMPL-CATALOG",
+      "TASK-IMPL-LOAN",
+      "TASK-IMPL-REPORT",
+      "TASK-TEST-CATALOG",
+      "TASK-TEST-LOAN",
+      "TASK-TEST-REPORT"
+    ],
+    "executor": "Hermes",
+    "reviewer": "Argus",
+    "write_scope": [
+      "reports/TASK-INTEGRATE-ACCEPTANCE"
+    ],
+    "checks": [
+      "Register DEV-1 and DEV-2. Reserve, checkout and return DEV-1 loan L1, then reserve and cancel L2; assert operation results and DEV-1 AVAILABLE.",
+      "Summarize the actual histories after both flows. DEV-1 total=2, returned=1, cancelled=1; DEV-2 all counts zero.",
+      "For the three ancestor reports read source_metadata[path]['data']; verify report['checks'] is nonempty and all actual exit_code values are zero."
+    ],
+    "resources": [],
+    "priority": 6,
+    "policy": {
+      "schema_version": "1.0",
+      "max_auto_retries": 2,
+      "timeout_seconds": 120
+    },
+    "required": true
+  }
+]

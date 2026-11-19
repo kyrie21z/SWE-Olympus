@@ -26,8 +26,9 @@ def test_review_manifest_uses_approved_delivery_scope_real_report_counts_and_ful
     assert manifest["execution_context"] == LOCAL_EXECUTION_CAPABILITIES
     assert manifest["tasks"] == [task.model_dump(mode="json") for task in bundle.plan.tasks]
     assert "approved requirement and design define scope" in prompt
-    assert "complete README.md" in prompt and "Chinese run-instruction" in prompt
-    assert "additional standalone guide is required only if" in prompt
+    assert "enumerate supported types" in prompt
+    assert "Require integrate or doc tasks only when the approved inputs" in prompt
+    assert "exact approved requirement or design element ID and its wording" in prompt
     assert "['data']['checks'][i]['output']" in prompt and "exit_code" in prompt
     assert "actual observed counts" in prompt and "requirement-backed expected values" in prompt
     assert "ENTIRE current task.inputs list" in prompt

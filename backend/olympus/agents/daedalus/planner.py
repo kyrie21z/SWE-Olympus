@@ -184,10 +184,13 @@ class DaedalusPlanner:
             [
                 "角色：Daedalus（任务分解）。依据提供的完整需求和设计正文规划，业务领域不限。",
                 "为每条需求及设计元素建立可验证任务；依据 coverage_obligations 选择任务类型，任务数和依赖由实际内容决定。",
-                "遵守范围外限制、接口先行、执行者与复核者分离，每条需求有测试任务覆盖。",
-                "sources 只引用任务实际实现或验证的需求和设计，不得通过给无关任务补来源 ID 来凑覆盖。",
+                "遵守范围外限制、明确公开接口、执行者与复核者分离。对同一产物的测试由一个测试任务覆盖，"
+                "将相关场景写入同一检查组，确保每条需求都能被测试。",
+                "每个任务的 sources 必须同时包含至少一个 requirement_ids 原始 ID 和至少一个 design_element_ids 原始 ID。"
+                "选择任务实际实现或验证的来源，逐项复制原始 ID，保留大小写和前缀。",
                 "checks 写清需求指定的成功、失败、边界、状态转换、幂等和并发条件；保留数值范围、校验顺序及返回结构，不得缩减既有条件。",
-                "Python 类接口任务应声明 api_contracts：{精确相对.py路径:{公开类名:[承诺的公开方法名]}}。异常类用空数组；构造通过类调用，不列 __init__。名称为正式接口契约，下游不得猜测别名。仅声明本任务 write_scope 内的文件。",
+                "用少量按业务场景组织的检查覆盖同一任务的相关断言，避免同一个场景占多个检查项。",
+                "定义 Python 公开类的任务应声明 api_contracts：{精确相对.py路径:{公开类名:[承诺的公开方法名]}}。异常类用空数组；构造通过类调用，不列 __init__。名称为正式接口契约，下游不得猜测别名。仅声明本任务 write_scope 内的文件。",
                 "api_contracts 仅声明本任务实际编写的 API；前驱 API 通过 inputs/depends_on 获得，不在只读测试或其他消费者任务中重复声明。",
                 "api_contracts 的键、outputs、write_scope 都以工作区根为同一坐标，不能把 API 键当作 write_scope 目录内的短文件名。"
                 "例如 outputs=['modules/Store.py']、write_scope=['modules/Store.py']，API 键须为 'modules/Store.py'，不能为 'Store.py'。"
@@ -457,7 +460,7 @@ class DaedalusPlanner:
 
         Findings are the review evidence; repairs are recomputed from the current
         plan so the revision is reproducible. Issues that cannot be repaired
-        safely (cycles, out-of-scope work, granularity) survive into the revision
+        safely (cycles, out-of-scope work) survive into the revision
         and the workflow halts for a human instead of looping.
         """
         report = validate_plan_semantics(plan, req, ds)

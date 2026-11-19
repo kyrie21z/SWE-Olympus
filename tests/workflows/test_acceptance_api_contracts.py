@@ -14,6 +14,7 @@ from olympus.workflows.acceptance import (
     generate_acceptance,
     migrate_acceptance_checkpoint,
 )
+from olympus.workflows.api_contracts import validate_api_contracts, validate_implementation_contracts
 from olympus.workflows.service import WorkflowRunner
 
 from test_acceptance_corrections import plan_with, task_with
@@ -21,6 +22,25 @@ from test_acceptance_corrections import plan_with, task_with
 CONTRACTS = {"modules/Store.py": {"Store": ["save_document"], "MissingDocument": []}}
 GOOD = "from modules.Store import Store\nstore = Store()\nassert store.save_document('x') == 'x'\n"
 BAD = "from modules.Store import DocumentStore\nstore = DocumentStore()\nassert store.save('x') == 'x'\n"
+
+
+def test_acceptance_rejects_using_fresh_bound_method_identity_to_select_arguments():
+    source = "from modules.Store import Store\nstore = Store()\nfn = store.save_document\n"
+    with pytest.raises(OutputSchemaError, match="declared project API contract") as failure:
+        validate_api_contracts(source + "if fn is store.save_document:\n    fn('x')\n", CONTRACTS)
+    assert "分别按签名直接调用" in failure.value.hint
+    validate_api_contracts(source + "assert fn is not None\nassert fn is fn\n", CONTRACTS)
+
+
+def test_implementation_cannot_shadow_declared_method_with_instance_storage():
+    source = ("class Store:\n    def __init__(instance):\n        instance.save_document = []\n"
+              "    def save_document(self, value):\n        return value\n"
+              "class MissingDocument(Exception):\n    pass\n")
+    with pytest.raises(OutputSchemaError, match="declared project API contract") as failure:
+        validate_implementation_contracts(source, "modules/Store.py", CONTRACTS)
+    assert "遮蔽了公开方法 Store.save_document" in failure.value.hint
+    validate_implementation_contracts(source.replace("instance.save_document", "instance.records"),
+                                      "modules/Store.py", CONTRACTS)
 
 
 def abi_plan(bundle):

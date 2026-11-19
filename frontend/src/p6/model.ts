@@ -669,6 +669,23 @@ export function buildTaskViewsFromView(view: RunView): P6TaskView[] {
     });
 }
 
+export function executionWaits(view: RunView) {
+  const snapshot = view.snapshot;
+  const blocked = snapshot.tasks.flatMap((task) => {
+    if (task.state !== "blocked" && task.state !== "failed") return [];
+    const incident = view.projection.incidents.open.find((item) => item.task_id === task.task_id);
+    return [{task_id: task.task_id, why: typeof incident?.reason === "string" ? incident.reason :
+      task.state === "failed" ? "任务执行或检查失败" : "任务等待核对或处理"}];
+  });
+  const ready = new Set(snapshot.tasks.filter((task) => task.state === "ready").map((task) => task.task_id));
+  const queued = snapshot.status === "active"
+    ? view.projection.sets.blocked.filter((item) => ready.has(item.task_id)).map((item) => ({
+        ...item, why: Array.isArray(item.why) ? item.why.join("；") : item.why,
+      }))
+    : [];
+  return {blocked, queued};
+}
+
 export function deriveStagesFromView(
   view: RunView,
   tasks: P6TaskView[],
@@ -686,7 +703,7 @@ export function deriveStagesFromView(
   const approvalDescription = (reference: typeof requirement, waiting: string) =>
     reference ? `${reference.object_id} · v${reference.version} · ${approved(reference) ? "已批准" : "待批准"}` : waiting;
   const progress = view.projection.progress;
-  const blocked = view.projection.sets.blocked.length > 0;
+  const {blocked, queued} = executionWaits(view);
   const active =
     tasks.some(({ runtime }) =>
       ["running", "verifying", "ready"].includes(runtime.state),
@@ -698,13 +715,11 @@ export function deriveStagesFromView(
   const executionStatus: P6StageStatus =
     run.status === "completed"
       ? "accepted"
-      : blocked
+      : blocked.length > 0
         ? "blocked"
-        : active
-          ? "in_progress"
-          : run.status === "paused"
-            ? "waiting_human"
-            : "waiting";
+        : run.status === "paused"
+          ? "waiting_human"
+          : active ? "in_progress" : "waiting";
   const acceptanceStatus: P6StageStatus =
     run.status === "completed"
       ? "accepted"
@@ -734,11 +749,11 @@ export function deriveStagesFromView(
     {
       key: "execute",
       title: "受控执行",
-      description: blocked
-        ? view.projection.sets.blocked
+      description: blocked.length > 0
+        ? blocked
             .map((item) => `${item.task_id}: ${item.why}`)
             .join("；")
-        : `${progress.accepted} / ${progress.required} 已验收`,
+        : `${progress.accepted} / ${progress.required} 已验收${queued.length ? ` · ${queued.length} 项排队` : ""}`,
       status: executionStatus,
     },
     {

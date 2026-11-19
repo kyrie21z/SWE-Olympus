@@ -48,8 +48,9 @@ _DELIVERY_PREFIX = re.compile(
     r"(?:repeatable|reproducible|independent|complete|chinese|english)\s+)*", re.IGNORECASE,
 )
 _TEST_DELIVERABLE = re.compile(
-    r"自动化测试|自动化验收|测试套件|测试脚本|测试与验收|"
+    r"自动化测试|自动化验收|测试套件|测试脚本|测试与验收|集成(?:测试|验收)|"
     r"(?:unittest|pytest)\s+(?:suite|tests?)\b|automated\s+tests?\b|"
+    r"(?:at least \w+ )?unit\s+tests?\b|integration\s+(?:tests?|tasks?|acceptance)\b|"
     r"test(?:ing)?\s+(?:suites?|scripts?|cases?)\b", re.IGNORECASE,
 )
 _DOC_DELIVERABLE = re.compile(
@@ -336,7 +337,7 @@ def validate_plan_semantics(plan: Plan, req: Requirement, ds: Design) -> PlanVal
             drafts.append(
                 _draft(
                     "MISSING_SOURCE",
-                    f"任务 {task.task_id} 未引用任何有效需求（FR-*）来源",
+                    f"任务 {task.task_id} 未引用任何当前需求条目的 ID",
                     task_id=task.task_id,
                 )
             )
@@ -344,7 +345,7 @@ def validate_plan_semantics(plan: Plan, req: Requirement, ds: Design) -> PlanVal
             drafts.append(
                 _draft(
                     "MISSING_SOURCE",
-                    f"任务 {task.task_id} 未引用任何有效设计元素（D-*）来源",
+                    f"任务 {task.task_id} 未引用任何当前设计元素的 ID",
                     task_id=task.task_id,
                 )
             )

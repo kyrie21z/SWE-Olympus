@@ -76,6 +76,8 @@ class AthenaDesigner:
                 "Use a single short string each for concurrency and interaction. Group related requirement IDs "
                 "under design elements with observable acceptance methods. Use concise names for interfaces. "
                 "Use full supplied requirements, respect out_of_scope and preserve business meaning. "
+                "Preserve any explicitly specified total and per-type task counts. For test delivery elements, "
+                "begin the description field with 'Automated test' or 'Integration test', as applicable. "
                 "For a revision, treat findings as a single checklist. Address every item in this response, "
                 "preserve the other behavior and acceptance checks in previous_design, then check the entire list "
                 "against the revised design before returning it. Use the approved requirements as the authority if a "
